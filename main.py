@@ -1,7 +1,7 @@
 import asyncio
 import logging
+import os
 import yaml
-from datetime import datetime
 
 from ring_monitor import RingMonitor
 from camera import capture_frame
@@ -11,7 +11,6 @@ from health_monitor import HealthMonitor
 
 # Configurar logging
 def setup_logging():
-    import os
     os.makedirs("logs", exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
@@ -28,6 +27,35 @@ logger = logging.getLogger(__name__)
 def load_config() -> dict:
     with open("config.yaml", encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+async def play_doorbell_sound(config: dict):
+    sound_cfg = config.get("sound", {})
+    if not sound_cfg.get("enabled", False):
+        return
+    sound_file = sound_cfg.get("doorbell_file", "")
+    if not sound_file:
+        return
+    if not os.path.exists(sound_file):
+        logger.error(f"Archivo de sonido no encontrado: {sound_file}")
+        return
+    try:
+        # Usar PowerShell + SoundPlayer para compatibilidad con Session 0 (NSSM)
+        safe_path = sound_file.replace("'", "''")
+        proc = await asyncio.create_subprocess_exec(
+            "powershell", "-NoProfile", "-NonInteractive", "-Command",
+            f"(New-Object System.Media.SoundPlayer '{safe_path}').PlaySync()",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE
+        )
+        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=15)
+        if proc.returncode != 0 and stderr:
+            logger.error(f"Error en SoundPlayer: {stderr.decode().strip()}")
+    except asyncio.TimeoutError:
+        logger.error("Timeout reproduciendo sonido — archivo demasiado largo o PowerShell no responde")
+        proc.kill()
+    except Exception as e:
+        logger.error(f"Error reproduciendo sonido: {e}")
 
 
 async def main():
@@ -55,6 +83,10 @@ async def main():
         if health_monitor.is_silenced():
             logger.info("Alertas silenciadas — evento ignorado")
             return
+
+        # Reproducir sonido en eventos ding (no bloquea el flujo principal)
+        if event_type == "ding":
+            asyncio.create_task(play_doorbell_sound(config))
 
         # 1. Capturar foto de la cámara SWANN
         photo_path = storage.get_photo_path(event_type)

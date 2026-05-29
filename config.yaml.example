@@ -20,6 +20,10 @@ storage:
 monitoring:
   daily_report_time: "08:00"    # hora del reporte diario HH:MM
 
+sound:
+  enabled: false                # true para activar sonido en eventos ding
+  doorbell_file: "C:\\ringalert\\sounds\\doorbell.wav"  # solo WAV (limitación de SoundPlayer)
+
 email:
   smtp_server: "smtp.gmail.com"
   smtp_port: 587

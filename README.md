@@ -106,7 +106,8 @@ C:\Projects\ringalert\
 ### `main.py`
 Punto de entrada. Orquesta todos los módulos con `asyncio.gather`. Contiene:
 - `setup_logging()`: configura log a archivo y consola
-- `on_ring_event(event_type, doorbell_name)`: callback que captura foto y envía WA
+- `play_doorbell_sound(config)`: reproduce el sonido configurado vía `asyncio.create_subprocess_exec` + PowerShell `System.Media.SoundPlayer`; solo ejecuta en eventos `ding`, corre en segundo plano sin bloquear; solo soporta WAV
+- `on_ring_event(event_type, doorbell_name)`: callback que dispara el sonido (ding), captura foto y envía WA
 - `poll_inbox()`: loop que lee mensajes entrantes de WA para procesar comandos
 
 ### `ring_monitor.py`
@@ -192,6 +193,10 @@ storage:
 
 monitoring:
   daily_report_time: "08:00"    # HH:MM
+
+sound:
+  enabled: false                # true para reproducir sonido en eventos ding
+  doorbell_file: "C:\\ruta\\al\\sonido.wav"  # solo WAV; vacío = deshabilitado
 
 email:
   smtp_server: "smtp.gmail.com"
@@ -330,3 +335,6 @@ Instalar: `cd whatsapp && npm install`
 - Solo CH02 apunta a la puerta principal — los demás canales están disponibles pero no configurados
 - Python real en el servidor: `C:\Users\r3fear\AppData\Local\Python\pythoncore-3.14-64\python.exe` — el launcher `py` de Windows resuelve esto automáticamente; usar la ruta completa si se configura NSSM o Task Scheduler directamente
 - El comando `FOTO` captura vía RTSP y guarda el archivo como `foto_HHMMSS.jpg` en el historial; sigue el mismo mecanismo y retención que los eventos `ding`/`motion`
+- `play_doorbell_sound` usa `subprocess` + PowerShell `System.Media.SoundPlayer` para reproducir audio — no usa librerías Python de audio para garantizar compatibilidad con Session 0 (NSSM); las APIs de audio de Python (`playsound`, `pygame`, `winsound`) requieren una sesión de usuario activa y fallan silenciosamente en servicios de Windows
+- `System.Media.SoundPlayer` solo soporta WAV; para MP3 habría que usar `MediaPlayer` de WPF (`System.Windows.Media.MediaPlayer`) con su propia complejidad
+- El archivo WAV se pasa con comillas simples al comando PowerShell; las comillas simples en la ruta se escapan como `''` (convención PowerShell)
