@@ -176,7 +176,7 @@ ring:
   min_time_between_alerts: 60   # segundos mínimos entre notificaciones
 
 camera:
-  rtsp_url: "rtsp://admin:admin1@192.168.1.10:554/ch02/0"
+  rtsp_url: "rtsp://usuario:password@IP:554/ch02/0"
   ffmpeg_path: "ffmpeg"         # o ruta completa si no está en PATH
 
 whatsapp:
