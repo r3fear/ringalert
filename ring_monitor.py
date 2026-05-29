@@ -139,7 +139,6 @@ if __name__ == "__main__":
     if "--setup" in sys.argv:
         asyncio.run(setup_ring())
     else:
-        # Test del monitor
         async def test_callback(event_type, doorbell_name):
             print(f"\n🔔 EVENTO: [{event_type}] en '{doorbell_name}' — {datetime.now()}")
 
@@ -150,7 +149,12 @@ if __name__ == "__main__":
 
             monitor = RingMonitor(config["ring"], test_callback)
             print("Escuchando eventos... (Ctrl+C para salir)")
-            await monitor.start()
+            try:
+                await monitor.start()
+            finally:
+                # Cerrar sesión aiohttp limpiamente
+                import aiohttp
+                await asyncio.sleep(0.25)
 
         try:
             asyncio.run(test())
