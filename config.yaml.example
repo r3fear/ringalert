@@ -1,0 +1,29 @@
+ring:
+  polling_interval: 5           # segundos entre consultas al timbre
+  min_time_between_alerts: 60   # segundos mínimos entre notificaciones
+
+camera:
+  rtsp_url: "rtsp://usuario:password@IP:554/ch02/0"
+  ffmpeg_path: "ffmpeg"         # o ruta completa si no está en PATH
+
+whatsapp:
+  server_url: "http://127.0.0.1:3000"
+  recipients:
+    - "521XXXXXXXXXX"           # número 1 (requerido)
+    - ""                        # número 2 (opcional)
+    - ""                        # número 3 (opcional)
+
+storage:
+  photos_dir: "C:\\ringalert\\fotos"
+  retention_days: 90
+
+monitoring:
+  daily_report_time: "08:00"    # hora del reporte diario HH:MM
+
+email:
+  smtp_server: "smtp.gmail.com"
+  smtp_port: 587
+  sender: "tucorreo@gmail.com"
+  password: "app_password_aqui" # contraseña de aplicación Gmail
+  recipients:
+    - "tucorreo@gmail.com"

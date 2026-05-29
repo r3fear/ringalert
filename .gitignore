@@ -1,0 +1,29 @@
+# Credenciales y configuración real
+config.yaml
+
+# Tokens de sesión Ring
+ring_token*.cache
+
+# Sesión WhatsApp
+whatsapp/_IGNORE_*
+whatsapp/.wwebjs_auth/
+whatsapp/.wwebjs_cache/
+
+# Fotos e historial local
+fotos/
+
+# Logs
+logs/
+
+# Dependencias
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+
+# VS Code
+.vscode/
+
+# Windows
+Thumbs.db
+Desktop.ini
