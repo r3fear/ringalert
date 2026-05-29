@@ -89,6 +89,7 @@ async def main():
     finally:
         ring_monitor.stop()
         health_monitor.stop()
+        await asyncio.sleep(0.25)  # dar tiempo a aiohttp para cerrar
         logger.info("RingAlert detenido")
 
 
