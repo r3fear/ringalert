@@ -5,6 +5,7 @@ from datetime import datetime, time
 
 from wa_sender import WhatsAppSender
 from storage import Storage
+from camera import capture_frame
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,17 @@ class HealthMonitor:
         elif message == "ESTADO":
             report = self.build_daily_report()
             self.wa_sender.send_alert(report)
+            return True
+
+        elif message == "FOTO":
+            rtsp_url = self.config["camera"]["rtsp_url"]
+            ffmpeg_path = self.config["camera"].get("ffmpeg_path", "ffmpeg")
+            photo_path = self.storage.get_photo_path("foto")
+            ok = capture_frame(rtsp_url, photo_path, ffmpeg_path)
+            if ok:
+                self.wa_sender.send_alert("📸 Foto capturada:", image_path=photo_path)
+            else:
+                self.wa_sender.send_alert("❌ No se pudo capturar la foto. Verifica la cámara.")
             return True
 
         return False

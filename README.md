@@ -208,6 +208,7 @@ Enviar desde cualquier número destinatario al número secundario (remitente):
 | `SILENCIAR 2h` | Silencia alertas por 2 horas |
 | `SILENCIAR 0.5h` | Silencia alertas por 30 minutos |
 | `REACTIVAR` | Cancela el silencio activo |
+| `FOTO` | Captura y envía una foto en tiempo real de la cámara |
 
 ---
 
