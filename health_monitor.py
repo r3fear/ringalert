@@ -35,27 +35,23 @@ class HealthMonitor:
         logger.info(f"Alertas silenciadas por {hours} horas hasta {self.silenced_until.strftime('%H:%M')}")
 
     def build_daily_report(self) -> str:
-        stats = self.storage.get_stats()
-        wa_status = "✅ Conectado" if self.wa_sender.is_server_alive() else "❌ Desconectado"
         battery = "N/A"
-
-        if self.ring_monitor and hasattr(self.ring_monitor, "last_battery"):
+        if self.ring_monitor and self.ring_monitor.last_battery is not None:
             battery = f"{self.ring_monitor.last_battery}%"
 
         now = datetime.now().strftime("%d/%m/%Y %H:%M")
+        wa_status = "✅ Conectado" if self.wa_sender.is_server_alive() else "❌ Desconectado"
         silenced_text = ""
         if self.is_silenced():
-            silenced_text = f"\n⏸ Alertas silenciadas hasta {self.silenced_until.strftime('%H:%M')}"
+            silenced_text = f"\n⏸ Silenciado hasta {self.silenced_until.strftime('%H:%M')}"
 
         return (
-            f"📊 Reporte diario RingAlert — {now}\n"
+            f"📊 Reporte RingAlert — {now}\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🔔 Timbre     : Puerta principal\n"
-            f"🔋 Batería    : {battery}\n"
-            f"💬 WhatsApp   : {wa_status}\n"
-            f"📸 Fotos hoy  : {self._photos_today()}\n"
-            f"📁 Total fotos: {stats['total_photos']} ({stats['total_size_mb']} MB)\n"
-            f"🗓 Retención  : {stats['retention_days']} días"
+            f"🔔 Timbre  : Puerta principal\n"
+            f"🔋 Batería : {battery}\n"
+            f"💬 WhatsApp: {wa_status}\n"
+            f"📸 Fotos hoy: {self._photos_today()}"
             f"{silenced_text}"
         )
 

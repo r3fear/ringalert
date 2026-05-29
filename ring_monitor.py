@@ -44,6 +44,7 @@ class RingMonitor:
         self.last_event_id = None
         self.last_alert_time = None
         self.running = False
+        self.last_battery = None
 
     async def start(self):
         logger.info("Iniciando monitor Ring...")
@@ -61,6 +62,14 @@ class RingMonitor:
         while self.running:
             try:
                 await ring.async_update_data()
+                await doorbell.async_update_health_data()
+
+                # Guardar batería actualizada
+                try:
+                    self.last_battery = doorbell.battery_life
+                except Exception:
+                    self.last_battery = None
+
                 historial = await doorbell.async_history(limit=1)
 
                 if historial:
@@ -68,28 +77,22 @@ class RingMonitor:
                     evento_id = evento.get("id")
                     kind = evento.get("kind", "")
 
-                    # Evento nuevo
                     if evento_id != self.last_event_id:
                         self.last_event_id = evento_id
 
-                        # Solo procesar ding y motion
                         if kind in ("ding", "motion"):
                             now = datetime.now()
 
-                            # Verificar tiempo mínimo entre alertas
                             if self.last_alert_time is None or \
                                (now - self.last_alert_time).total_seconds() >= self.min_time_between_alerts:
 
                                 self.last_alert_time = now
                                 logger.info(f"Evento detectado: [{kind}] en '{doorbell.name}'")
-
-                                # Llamar al callback con el tipo de evento
                                 await self.event_callback(kind, doorbell.name)
                             else:
                                 segundos = (now - self.last_alert_time).total_seconds()
                                 logger.debug(f"Evento [{kind}] ignorado — "
-                                           f"faltan {self.min_time_between_alerts - segundos:.0f}s "
-                                           f"para siguiente alerta")
+                                           f"faltan {self.min_time_between_alerts - segundos:.0f}s")
 
             except Exception as e:
                 logger.error(f"Error en polling Ring: {e}")
