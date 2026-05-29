@@ -73,8 +73,16 @@ class Storage:
         """
         Retorna estadísticas del historial local.
         """
+        base = {
+            "total_photos": 0,
+            "total_size_mb": 0,
+            "oldest": None,
+            "newest": None,
+            "retention_days": self.retention_days
+        }
+
         if not os.path.exists(self.photos_dir):
-            return {"total_photos": 0, "total_size_mb": 0, "oldest": None, "newest": None}
+            return base
 
         total_photos = 0
         total_size = 0
