@@ -79,10 +79,30 @@ async def main():
 
     logger.info("🚀 Sistema activo — escuchando eventos")
 
+    async def poll_inbox():
+        import urllib.request
+        import json
+        while True:
+            try:
+                req = urllib.request.Request(
+                    f"{config['whatsapp']['server_url']}/inbox"
+                )
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    data = json.loads(resp.read())
+                    for msg in data.get("messages", []):
+                        body = msg.get("body", "").strip()
+                        if body:
+                            logger.info(f"Comando recibido: {body}")
+                            await health_monitor.process_whatsapp_command(body)
+            except Exception:
+                pass
+            await asyncio.sleep(5)
+
     try:
         await asyncio.gather(
             ring_monitor.start(),
-            health_monitor.start()
+            health_monitor.start(),
+            poll_inbox()
         )
     except asyncio.CancelledError:
         pass
