@@ -110,6 +110,11 @@ Punto de entrada. Orquesta todos los módulos con `asyncio.gather`. Contiene:
 - `poll_inbox()`: loop que lee mensajes entrantes de WA para procesar comandos
 
 ### `ring_monitor.py`
+Funciones de módulo:
+- `token_updated(token)`: callback que serializa y guarda el token actualizado a `ring_token.cache`
+- `get_ring_auth()`: carga `Auth` desde `ring_token.cache`; lanza `FileNotFoundError` si no existe (indica que hay que correr `--setup` primero)
+- `get_doorbell(ring)`: retorna el primer timbre de `ring.devices().doorbells`
+
 Clase `RingMonitor`:
 - Conecta a Ring vía token en `ring_token.cache`
 - Hace polling a `doorbell.async_history(limit=1)` cada `polling_interval` segundos
@@ -146,7 +151,7 @@ Clase `HealthMonitor`:
 - `check_daily_report()`: envía reporte a `daily_report_time` una vez por día
 - `_photos_today()`: cuenta fotos del día actual
 - `build_daily_report()`: genera texto del reporte con batería, estado WA, fotos del día
-- `process_whatsapp_command(message)`: procesa comandos entrantes (ver sección Comandos)
+- `process_whatsapp_command(message)`: procesa comandos entrantes (ESTADO, SILENCIAR, REACTIVAR, FOTO); importa `capture_frame` de `camera.py` para el comando FOTO
 - `silence(hours)`: silencia alertas por N horas
 - `is_silenced()`: verifica si las alertas están silenciadas
 
@@ -156,7 +161,8 @@ Servidor HTTP en puerto 3000 (solo localhost). Endpoints:
 - `GET /status` — retorna `{ok, connected}`
 - `GET /inbox` — retorna y vacía la cola de mensajes entrantes
 
-Usa `whatsapp-web.js` con `LocalAuth` (sesión guardada en `.wwebjs_auth/`).
+Usa `whatsapp-web.js` con `LocalAuth({ clientId: 'ringalert' })` (sesión guardada en `.wwebjs_auth/session-ringalert/`).
+Cola de inbox limitada a 50 mensajes; los más antiguos se descartan automáticamente.
 Sesión vinculada escaneando QR con número secundario dedicado.
 Chrome instalado en `C:\Program Files\Google\Chrome\Application\chrome.exe`.
 
@@ -219,6 +225,27 @@ Enviar desde cualquier número destinatario al número secundario (remitente):
 - Inicia `wa-server.js` en ventana minimizada con log a `logs/whatsapp.log`
 - Espera 10 segundos
 - Inicia `main.py` en ventana minimizada
+
+### Alternativa con NSSM
+
+Si se usa **NSSM** (Non-Sucking Service Manager) en lugar de Task Scheduler, el ejecutable real de Python en el servidor es:
+
+```
+C:\Users\r3fear\AppData\Local\Python\pythoncore-3.14-64\python.exe
+```
+
+Ejemplo de configuración NSSM para `main.py`:
+
+```powershell
+nssm install RingAlertMain "C:\Users\r3fear\AppData\Local\Python\pythoncore-3.14-64\python.exe"
+nssm set RingAlertMain AppParameters "C:\Projects\ringalert\main.py"
+nssm set RingAlertMain AppDirectory "C:\Projects\ringalert"
+nssm set RingAlertMain AppStdout "C:\Projects\ringalert\logs\ringalert.log"
+nssm set RingAlertMain AppStderr "C:\Projects\ringalert\logs\ringalert.log"
+nssm set RingAlertMain Start SERVICE_AUTO_START
+```
+
+---
 
 Comandos útiles en el servidor:
 
@@ -298,6 +325,8 @@ Instalar: `cd whatsapp && npm install`
 - El servidor WhatsApp **debe estar corriendo** antes de iniciar `main.py`
 - El número de WhatsApp debe tener código de país sin `+`: ejemplo `5215512345678`
 - `async_update_health_data()` debe llamarse antes de leer `battery_life`
-- El warning `Unclosed client session` de aiohttp al cerrar con Ctrl+C es **cosmético**, no es un error funcional
+- La sesión `aiohttp` de `ring-doorbell` se cierra explícitamente en el `finally` de `RingMonitor.start()` — el warning `Unclosed client session` ya no debe aparecer al detener el servicio
 - Las cámaras SWANN tienen 4 canales: `ch01/0` a `ch04/0` (main stream) y `ch01/1` a `ch04/1` (sub stream)
 - Solo CH02 apunta a la puerta principal — los demás canales están disponibles pero no configurados
+- Python real en el servidor: `C:\Users\r3fear\AppData\Local\Python\pythoncore-3.14-64\python.exe` — el launcher `py` de Windows resuelve esto automáticamente; usar la ruta completa si se configura NSSM o Task Scheduler directamente
+- El comando `FOTO` captura vía RTSP y guarda el archivo como `foto_HHMMSS.jpg` en el historial; sigue el mismo mecanismo y retención que los eventos `ding`/`motion`

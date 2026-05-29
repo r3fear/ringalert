@@ -144,14 +144,22 @@ class HealthMonitor:
             return True
 
         elif message == "FOTO":
-            rtsp_url = self.config["camera"]["rtsp_url"]
-            ffmpeg_path = self.config["camera"].get("ffmpeg_path", "ffmpeg")
-            photo_path = self.storage.get_photo_path("foto")
-            ok = capture_frame(rtsp_url, photo_path, ffmpeg_path)
-            if ok:
-                self.wa_sender.send_alert("📸 Foto capturada:", image_path=photo_path)
-            else:
-                self.wa_sender.send_alert("❌ No se pudo capturar la foto. Verifica la cámara.")
+            try:
+                logger.info("Comando FOTO: iniciando captura...")
+                rtsp_url = self.config["camera"]["rtsp_url"]
+                ffmpeg_path = self.config["camera"].get("ffmpeg_path", "ffmpeg")
+                photo_path = self.storage.get_photo_path("foto")
+                logger.info(f"Comando FOTO: capturando en {photo_path}")
+                ok = capture_frame(rtsp_url, photo_path, ffmpeg_path)
+                if ok:
+                    logger.info("Comando FOTO: captura exitosa, enviando por WhatsApp...")
+                    self.wa_sender.send_alert("📸 Foto capturada:", image_path=photo_path)
+                else:
+                    logger.error("Comando FOTO: captura fallida")
+                    self.wa_sender.send_alert("❌ No se pudo capturar la foto. Verifica la cámara.")
+            except Exception as e:
+                logger.error(f"Comando FOTO: error inesperado — {e}")
+                self.wa_sender.send_alert("❌ Error interno al procesar FOTO.")
             return True
 
         return False

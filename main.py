@@ -94,8 +94,8 @@ async def main():
                         if body:
                             logger.info(f"Comando recibido: {body}")
                             await health_monitor.process_whatsapp_command(body)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Error en poll_inbox: {e}")
             await asyncio.sleep(5)
 
     try:

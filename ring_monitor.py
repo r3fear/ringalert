@@ -56,52 +56,69 @@ class RingMonitor:
         logger.info(f"Monitoreando: '{doorbell.name}' | "
                     f"Polling cada {self.polling_interval}s | "
                     f"Mínimo entre alertas: {self.min_time_between_alerts}s")
+        
+        # Inicializar con el último evento conocido para evitar
+        # disparar una alerta falsa al arrancar el servicio
+        try:
+            historial_inicial = await doorbell.async_history(limit=1)
+            if historial_inicial:
+                self.last_event_id = historial_inicial[0].get("id")
+                logger.info(f"Último evento conocido al iniciar: {self.last_event_id}")
+        except Exception as e:
+            logger.warning(f"No se pudo obtener historial inicial: {e}")
 
         self.running = True
 
-        while self.running:
-            try:
-                await ring.async_update_data()
-                await doorbell.async_update_health_data()
-
-                # Guardar batería actualizada
+        try:
+            while self.running:
                 try:
-                    self.last_battery = doorbell.battery_life
-                except Exception:
-                    self.last_battery = None
+                    await ring.async_update_data()
+                    await doorbell.async_update_health_data()
 
-                historial = await doorbell.async_history(limit=1)
+                    # Guardar batería actualizada
+                    try:
+                        self.last_battery = doorbell.battery_life
+                    except Exception:
+                        self.last_battery = None
 
-                if historial:
-                    evento = historial[0]
-                    evento_id = evento.get("id")
-                    kind = evento.get("kind", "")
+                    historial = await doorbell.async_history(limit=1)
 
-                    if evento_id != self.last_event_id:
-                        self.last_event_id = evento_id
+                    if historial:
+                        evento = historial[0]
+                        evento_id = evento.get("id")
+                        kind = evento.get("kind", "")
 
-                        if kind in ("ding", "motion"):
-                            now = datetime.now()
+                        if evento_id != self.last_event_id:
+                            self.last_event_id = evento_id
 
-                            if self.last_alert_time is None or \
-                               (now - self.last_alert_time).total_seconds() >= self.min_time_between_alerts:
+                            if kind in ("ding", "motion"):
+                                now = datetime.now()
 
-                                self.last_alert_time = now
-                                logger.info(f"Evento detectado: [{kind}] en '{doorbell.name}'")
-                                await self.event_callback(kind, doorbell.name)
-                            else:
-                                segundos = (now - self.last_alert_time).total_seconds()
-                                logger.debug(f"Evento [{kind}] ignorado — "
-                                           f"faltan {self.min_time_between_alerts - segundos:.0f}s")
+                                if self.last_alert_time is None or \
+                                   (now - self.last_alert_time).total_seconds() >= self.min_time_between_alerts:
 
-            except Exception as e:
-                logger.error(f"Error en polling Ring: {e}")
+                                    self.last_alert_time = now
+                                    logger.info(f"Evento detectado: [{kind}] en '{doorbell.name}'")
+                                    await self.event_callback(kind, doorbell.name)
+                                else:
+                                    segundos = (now - self.last_alert_time).total_seconds()
+                                    logger.debug(f"Evento [{kind}] ignorado — "
+                                               f"faltan {self.min_time_between_alerts - segundos:.0f}s")
 
-            await asyncio.sleep(self.polling_interval)
+                except Exception as e:
+                    logger.error(f"Error en polling Ring: {e}")
+
+                await asyncio.sleep(self.polling_interval)
+        finally:
+            try:
+                if hasattr(auth, 'session') and not auth.session.closed:
+                    await auth.session.close()
+            except Exception:
+                pass
+            logger.info("Monitor Ring detenido")
 
     def stop(self):
         self.running = False
-        logger.info("Monitor Ring detenido")
 
 
 # Setup inicial — correr una sola vez para autenticarse
