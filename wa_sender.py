@@ -52,6 +52,16 @@ class WhatsAppSender:
             logger.error(f"Error enviando a {to}: {e}")
             return False
 
+    def send_direct(self, to: str, message: str, image_path: str = "") -> bool:
+        """Envía mensaje a un destinatario específico (número o JID completo con @)."""
+        if not self.is_server_alive():
+            logger.error("Servidor WhatsApp no disponible para respuesta directa")
+            return False
+        ok = self._send_request(to, message, image_path)
+        if ok:
+            logger.info(f"✅ Respuesta directa enviada a {to}")
+        return ok
+
     def send_alert(self, message: str, image_path: str = "") -> bool:
         """
         Envía mensaje y foto a todos los destinatarios.

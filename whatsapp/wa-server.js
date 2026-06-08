@@ -65,8 +65,8 @@ const server = http.createServer(async (req, res) => {
                     return;
                 }
 
-                // Formatear número (ej: 5212223334444@c.us)
-                const number = to.replace(/[^0-9]/g, '') + '@c.us';
+                // Si ya es un JID completo (contiene @) usarlo directo; si no, agregar @c.us
+                const number = to.includes('@') ? to : (to.replace(/[^0-9]/g, '') + '@c.us');
 
                 // Enviar texto primero
                 await client.sendMessage(number, message);

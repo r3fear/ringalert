@@ -123,9 +123,10 @@ async def main():
                     data = json.loads(resp.read())
                     for msg in data.get("messages", []):
                         body = msg.get("body", "").strip()
+                        sender = msg.get("from", "")
                         if body:
-                            logger.info(f"Comando recibido: {body}")
-                            await health_monitor.process_whatsapp_command(body)
+                            logger.info(f"Comando recibido de {sender}: {body}")
+                            await health_monitor.process_whatsapp_command(body, sender)
             except Exception as e:
                 logger.error(f"Error en poll_inbox: {e}")
             await asyncio.sleep(5)

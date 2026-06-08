@@ -236,13 +236,13 @@ Enviar desde cualquier número destinatario al número secundario (remitente):
 Si se usa **NSSM** (Non-Sucking Service Manager) en lugar de Task Scheduler, el ejecutable real de Python en el servidor es:
 
 ```
-C:\Users\r3fear\AppData\Local\Python\pythoncore-3.14-64\python.exe
+C:\Users\AppData\Local\Python\pythoncore-3.14-64\python.exe
 ```
 
 Ejemplo de configuración NSSM para `main.py`:
 
 ```powershell
-nssm install RingAlertMain "C:\Users\r3fear\AppData\Local\Python\pythoncore-3.14-64\python.exe"
+nssm install RingAlertMain "C:\Users\AppData\Local\Python\pythoncore-3.14-64\python.exe"
 nssm set RingAlertMain AppParameters "C:\Projects\ringalert\main.py"
 nssm set RingAlertMain AppDirectory "C:\Projects\ringalert"
 nssm set RingAlertMain AppStdout "C:\Projects\ringalert\logs\ringalert.log"

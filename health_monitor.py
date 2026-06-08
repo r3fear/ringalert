@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 from datetime import datetime, time
 
@@ -107,12 +106,33 @@ class HealthMonitor:
             self.storage.cleanup_old_photos()
             self.last_report_date = now.date()
 
-    async def process_whatsapp_command(self, message: str) -> bool:
+    def _is_authorized_sender(self, sender: str) -> bool:
+        if not sender:
+            return True
+        sender_digits = ''.join(filter(str.isdigit, sender))
+        authorized = [
+            ''.join(filter(str.isdigit, r))
+            for r in self.config.get("whatsapp", {}).get("recipients", [])
+            if r and r.strip()
+        ]
+        return sender_digits in authorized
+
+    async def process_whatsapp_command(self, message: str, sender: str = "") -> bool:
         """
         Procesa comandos recibidos por WhatsApp.
-        Retorna True si el mensaje era un comando válido.
+        Responde solo al remitente (sender). Retorna True si era un comando válido.
         """
+        if not self._is_authorized_sender(sender):
+            logger.warning(f"Comando ignorado — remitente no autorizado: {sender}")
+            return False
+
         message = message.strip().upper()
+
+        def reply(text, image_path=""):
+            if sender:
+                self.wa_sender.send_direct(sender, text, image_path)
+            else:
+                self.wa_sender.send_alert(text, image_path)
 
         if message.startswith("SILENCIAR"):
             try:
@@ -124,7 +144,7 @@ class HealthMonitor:
                     else:
                         hours = float(value)
                     self.silence(hours)
-                    self.wa_sender.send_alert(
+                    reply(
                         f"⏸ Alertas silenciadas por {hours} horas.\n"
                         f"Se reactivarán a las {self.silenced_until.strftime('%H:%M')}.\n"
                         f"Envía REACTIVAR para cancelar el silencio."
@@ -135,12 +155,11 @@ class HealthMonitor:
 
         elif message == "REACTIVAR":
             self.silenced_until = None
-            self.wa_sender.send_alert("🔔 Alertas reactivadas.")
+            reply("🔔 Alertas reactivadas.")
             return True
 
         elif message == "ESTADO":
-            report = self.build_daily_report()
-            self.wa_sender.send_alert(report)
+            reply(self.build_daily_report())
             return True
 
         elif message == "FOTO":
@@ -153,13 +172,13 @@ class HealthMonitor:
                 ok = capture_frame(rtsp_url, photo_path, ffmpeg_path)
                 if ok:
                     logger.info("Comando FOTO: captura exitosa, enviando por WhatsApp...")
-                    self.wa_sender.send_alert("📸 Foto capturada:", image_path=photo_path)
+                    reply("📸 Foto capturada:", image_path=photo_path)
                 else:
                     logger.error("Comando FOTO: captura fallida")
-                    self.wa_sender.send_alert("❌ No se pudo capturar la foto. Verifica la cámara.")
+                    reply("❌ No se pudo capturar la foto. Verifica la cámara.")
             except Exception as e:
                 logger.error(f"Comando FOTO: error inesperado — {e}")
-                self.wa_sender.send_alert("❌ Error interno al procesar FOTO.")
+                reply("❌ Error interno al procesar FOTO.")
             return True
 
         return False
