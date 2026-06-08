@@ -1,6 +1,8 @@
 import asyncio
+import json
 import logging
 import os
+import urllib.request
 import yaml
 
 from ring_monitor import RingMonitor
@@ -73,6 +75,19 @@ async def main():
     # Verificar servidor WhatsApp al inicio
     if wa_sender.is_server_alive():
         logger.info("✅ Servidor WhatsApp conectado")
+        # Registrar destinatarios para resolver @lid (WhatsApp multi-device)
+        try:
+            numbers = [r for r in config.get("whatsapp", {}).get("recipients", []) if r and r.strip()]
+            payload = json.dumps({"numbers": numbers}).encode("utf-8")
+            req = urllib.request.Request(
+                f"{config['whatsapp']['server_url']}/register-recipients",
+                data=payload,
+                headers={"Content-Type": "application/json"}
+            )
+            urllib.request.urlopen(req, timeout=10)
+            logger.info(f"✅ Destinatarios registrados para resolución @lid ({len(numbers)} números)")
+        except Exception as e:
+            logger.warning(f"No se pudo registrar destinatarios en wa-server: {e}")
     else:
         logger.warning("⚠️ Servidor WhatsApp no disponible al iniciar")
 
@@ -112,8 +127,6 @@ async def main():
     logger.info("🚀 Sistema activo — escuchando eventos")
 
     async def poll_inbox():
-        import urllib.request
-        import json
         while True:
             try:
                 req = urllib.request.Request(
