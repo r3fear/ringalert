@@ -30,10 +30,20 @@ client.on('ready', () => {
 const inbox = [];
 
 // Escuchar mensajes entrantes
-client.on('message', msg => {
-    console.log(`📩 Mensaje recibido de ${msg.from}: ${msg.body}`);
+client.on('message', async msg => {
+    // Resolver número real del contacto (evita @lid de multi-device)
+    let senderNumber = msg.from;
+    try {
+        const contact = await msg.getContact();
+        if (contact && contact.number) {
+            senderNumber = contact.number;
+        }
+    } catch (e) {
+        // Si falla la resolución, usar msg.from original
+    }
+    console.log(`📩 Mensaje recibido de ${senderNumber}: ${msg.body}`);
     inbox.push({
-        from: msg.from,
+        from: senderNumber,
         body: msg.body,
         timestamp: Date.now()
     });
