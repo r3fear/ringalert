@@ -32,10 +32,10 @@ Cuando alguien toca el timbre o se detecta movimiento, el sistema:
 |---|---|
 | Servidor | Windows 11 Pro, encendido 24/7, sin monitor |
 | Timbre | Ring Video Doorbell — "Puerta principal", batería |
-| DVR cámaras | SWANN, IP `192.168.1.10`, puerto RTSP `554` |
+| DVR cámaras | SWANN, IP `192.168.X.X`, puerto RTSP `554` |
 | Cámara activa | CH02 — apunta a la puerta principal |
-| Credenciales DVR | usuario: `admin`, password: `admin1` |
-| URL RTSP activa | `rtsp://admin:admin1@192.168.1.10:554/ch02/0` |
+| Credenciales DVR | usuario: `XXX`, password: `XXX` |
+| URL RTSP activa | `rtsp://usuario:password@IP:554/ch02/0` |
 | WhatsApp remitente | Número secundario dedicado |
 
 ---
@@ -108,7 +108,8 @@ Punto de entrada. Orquesta todos los módulos con `asyncio.gather`. Contiene:
 - `setup_logging()`: configura log a archivo y consola
 - `play_doorbell_sound(config)`: reproduce el sonido configurado vía `asyncio.create_subprocess_exec` + PowerShell `System.Media.SoundPlayer`; solo ejecuta en eventos `ding`, corre en segundo plano sin bloquear; solo soporta WAV
 - `on_ring_event(event_type, doorbell_name)`: callback que dispara el sonido (ding), captura foto y envía WA
-- `poll_inbox()`: loop que lee mensajes entrantes de WA para procesar comandos
+- `poll_inbox()`: loop que lee mensajes entrantes de WA; pasa `body` y `sender` a `process_whatsapp_command`
+- Al arrancar (si WA conectado): llama `POST /register-recipients` con la lista de recipients para resolver @lid de WhatsApp multi-device
 
 ### `ring_monitor.py`
 Funciones de módulo:
@@ -118,6 +119,7 @@ Funciones de módulo:
 
 Clase `RingMonitor`:
 - Conecta a Ring vía token en `ring_token.cache`
+- Al iniciar, lee el último evento conocido y lo guarda en `self.last_event_id` para evitar falsa alerta al arrancar el servicio
 - Hace polling a `doorbell.async_history(limit=1)` cada `polling_interval` segundos
 - Detecta eventos nuevos comparando IDs
 - Filtra por `min_time_between_alerts` para evitar spam
@@ -134,8 +136,9 @@ Función `capture_frame(rtsp_url, output_path, ffmpeg_path)`:
 ### `wa_sender.py`
 Clase `WhatsAppSender`:
 - `is_server_alive()`: GET `/status` al servidor Node
-- `send_alert(message, image_path)`: envía a todos los recipients activos
-- `_send_request(to, message, imagePath)`: POST `/send` al servidor Node
+- `send_alert(message, image_path)`: broadcast a todos los recipients activos
+- `send_direct(to, message, image_path)`: envía a un destinatario específico (número o JID completo con `@`); usado por `process_whatsapp_command` para responder solo al remitente
+- `_send_request(to, message, imagePath)`: POST `/send` al servidor Node (método interno)
 - `send_email_fallback(message)`: SMTP Gmail, solo para caídas de WA
 - `build_message(event_type, doorbell_name)`: formatea el texto del mensaje
 - Recipients: filtra strings vacíos automáticamente (soporta 1-3 números)
@@ -152,15 +155,23 @@ Clase `HealthMonitor`:
 - `check_daily_report()`: envía reporte a `daily_report_time` una vez por día
 - `_photos_today()`: cuenta fotos del día actual
 - `build_daily_report()`: genera texto del reporte con batería, estado WA, fotos del día
-- `process_whatsapp_command(message)`: procesa comandos entrantes (ESTADO, SILENCIAR, REACTIVAR, FOTO); importa `capture_frame` de `camera.py` para el comando FOTO
+- `_is_authorized_sender(sender)`: valida que el remitente (número o JID) esté en la lista de `recipients`; extrae dígitos para comparar — rechaza mensajes de números no autorizados
+- `process_whatsapp_command(message, sender)`: procesa comandos (ESTADO, SILENCIAR, REACTIVAR, FOTO); rechaza si el sender no está autorizado; responde solo al remitente vía `send_direct`; importa `capture_frame` de `camera.py` para FOTO
 - `silence(hours)`: silencia alertas por N horas
 - `is_silenced()`: verifica si las alertas están silenciadas
 
 ### `wa-server.js`
 Servidor HTTP en puerto 3000 (solo localhost). Endpoints:
-- `POST /send` — body: `{to, message, imagePath}` — envía texto y/o imagen
+- `POST /send` — body: `{to, message, imagePath}` — envía texto y/o imagen; `to` acepta número plano o JID completo con `@`
+- `POST /register-recipients` — body: `{numbers: [...]}` — registra destinatarios y construye el mapa `@lid → número` buscando en el historial de cada chat
 - `GET /status` — retorna `{ok, connected}`
 - `GET /inbox` — retorna y vacía la cola de mensajes entrantes
+
+Funciones internas:
+- `log(level, message)`: logging estandarizado con timestamp `YYYY-MM-DD HH:MM:SS - LEVEL - mensaje` (mismo formato que `ringalert.log`); sin emojis
+- `cleanupLockFiles()`: elimina `SingletonLock`, `SingletonCookie` y `SingletonSocket` del directorio de sesión antes de `client.initialize()`; evita que Puppeteer/Chrome falle al arrancar tras un apagado inesperado; usa `fs.existsSync` + `fs.rmSync({ force: true })`; loguea cuántos archivos eliminó; si falla, loguea el error y continúa de todas formas
+- `buildLidMap(numbers)`: para cada número, abre el chat por `@c.us` y busca mensajes entrantes con `@lid`; guarda la relación en `lidToNumber`
+- `lidToNumber`: cache en memoria `{ '128905038008497': '5214433958021' }`; permite que el mensaje handler resuelva el `@lid` a número de teléfono real
 
 Usa `whatsapp-web.js` con `LocalAuth({ clientId: 'ringalert' })` (sesión guardada en `.wwebjs_auth/session-ringalert/`).
 Cola de inbox limitada a 50 mensajes; los más antiguos se descartan automáticamente.
@@ -211,7 +222,7 @@ email:
 
 ## Comandos WhatsApp disponibles
 
-Enviar desde cualquier número destinatario al número secundario (remitente):
+Enviar desde un número autorizado (debe estar en `recipients`) al número secundario (remitente). El bot responde **solo al número que envió el comando**, no a todos los recipients. Mensajes de números no autorizados se ignoran sin respuesta.
 
 | Comando | Efecto |
 |---|---|
@@ -333,8 +344,11 @@ Instalar: `cd whatsapp && npm install`
 - La sesión `aiohttp` de `ring-doorbell` se cierra explícitamente en el `finally` de `RingMonitor.start()` — el warning `Unclosed client session` ya no debe aparecer al detener el servicio
 - Las cámaras SWANN tienen 4 canales: `ch01/0` a `ch04/0` (main stream) y `ch01/1` a `ch04/1` (sub stream)
 - Solo CH02 apunta a la puerta principal — los demás canales están disponibles pero no configurados
-- Python real en el servidor: `C:\Users\r3fear\AppData\Local\Python\pythoncore-3.14-64\python.exe` — el launcher `py` de Windows resuelve esto automáticamente; usar la ruta completa si se configura NSSM o Task Scheduler directamente
+- Python real en el servidor: `C:\Users\AppData\Local\Python\pythoncore-3.14-64\python.exe` — el launcher `py` de Windows resuelve esto automáticamente; usar la ruta completa si se configura NSSM o Task Scheduler directamente
 - El comando `FOTO` captura vía RTSP y guarda el archivo como `foto_HHMMSS.jpg` en el historial; sigue el mismo mecanismo y retención que los eventos `ding`/`motion`
 - `play_doorbell_sound` usa `subprocess` + PowerShell `System.Media.SoundPlayer` para reproducir audio — no usa librerías Python de audio para garantizar compatibilidad con Session 0 (NSSM); las APIs de audio de Python (`playsound`, `pygame`, `winsound`) requieren una sesión de usuario activa y fallan silenciosamente en servicios de Windows
 - `System.Media.SoundPlayer` solo soporta WAV; para MP3 habría que usar `MediaPlayer` de WPF (`System.Windows.Media.MediaPlayer`) con su propia complejidad
 - El archivo WAV se pasa con comillas simples al comando PowerShell; las comillas simples en la ruta se escapan como `''` (convención PowerShell)
+- WhatsApp multi-device usa `@lid` (Linked Device ID) como identificador del remitente en lugar del número de teléfono — `whatsapp-web.js` no expone una API para mapear `@lid` → número directamente; la solución es `buildLidMap` que lee el historial del chat indexado por `@c.us` para encontrar el `@lid` correspondiente
+- Los comandos de WhatsApp responden solo al remitente (`send_direct`) y no a todos los recipients (`send_alert`); la autorización se valida comparando dígitos del sender contra la lista de `recipients` en config
+- El `log(level, message)` de `wa-server.js` produce el mismo formato de timestamp que Python (`YYYY-MM-DD HH:MM:SS - LEVEL - mensaje`) para facilitar correlación entre `ringalert.log` y `whatsapp.log`

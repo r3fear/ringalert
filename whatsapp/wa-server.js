@@ -86,6 +86,28 @@ client.on('disconnected', reason => {
     log('WARNING', `WhatsApp desconectado: ${reason}`);
 });
 
+// Elimina archivos de bloqueo de Chrome/Puppeteer que quedan tras un apagado inesperado
+function cleanupLockFiles() {
+    const sessionDir = '.wwebjs_auth/session-ringalert';
+    const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+    let removed = 0;
+    try {
+        for (const file of lockFiles) {
+            const fullPath = `${sessionDir}/${file}`;
+            if (fs.existsSync(fullPath)) {
+                fs.rmSync(fullPath, { force: true });
+                removed++;
+            }
+        }
+        if (removed > 0) {
+            log('INFO', `Archivos de bloqueo eliminados: ${removed} (${lockFiles.join(', ')})`);
+        }
+    } catch (e) {
+        log('ERROR', `Error limpiando archivos de bloqueo: ${e.message}`);
+    }
+}
+
+cleanupLockFiles();
 client.initialize();
 
 // Servidor HTTP para recibir ordenes desde Python
