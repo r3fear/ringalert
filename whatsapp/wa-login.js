@@ -19,19 +19,30 @@ function askQuestion(prompt) {
     });
 }
 
+function killChrome() {
+    try {
+        execSync('taskkill /F /IM chrome.exe /T', { stdio: 'pipe' });
+        console.log('Procesos Chrome terminados.');
+    } catch (e) { /* sin procesos Chrome activos */ }
+    // Esperar a que el SO libere los handles de archivo antes de continuar
+    try { execSync('ping -n 3 127.0.0.1 >nul', { stdio: 'pipe' }); } catch (e) {}
+}
+
 function deleteSession() {
-    if (fs.existsSync(SESSION_DIR)) {
-        fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+    if (!fs.existsSync(SESSION_DIR)) return;
+    // rd /s /q es más robusto que fs.rmSync en Windows para perfiles Chrome
+    // (maneja junction points, atributos read-only y handles pendientes)
+    try {
+        execSync(`rd /s /q "${SESSION_DIR}"`, { stdio: 'pipe' });
         console.log('Sesion anterior eliminada.\n');
+    } catch (e) {
+        console.error(`No se pudo eliminar la sesion: ${e.message}`);
+        console.error(`Intentalo manualmente: rd /s /q "${SESSION_DIR}"`);
+        process.exit(1);
     }
 }
 
 function cleanupLockFiles() {
-    try {
-        execSync('taskkill /F /IM chrome.exe /T', { stdio: 'pipe' });
-        console.log('Procesos Chrome previos terminados.');
-    } catch (e) { /* sin procesos Chrome activos */ }
-
     const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'DevToolsActivePort'];
     for (const file of lockFiles) {
         try { fs.rmSync(path.join(SESSION_DIR, file), { force: true }); } catch (e) { /* ignorar */ }
@@ -54,10 +65,12 @@ async function main() {
             process.exit(0);
         }
 
-        console.log('\nEliminando sesion anterior...');
+        console.log('\nDeteniendo Chrome y eliminando sesion anterior...');
+        killChrome();
         deleteSession();
     } else {
         console.log('No se encontro sesion activa. Iniciando autenticacion...\n');
+        killChrome();
     }
 
     cleanupLockFiles();
