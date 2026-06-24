@@ -201,7 +201,7 @@ whatsapp:
 
 storage:
   photos_dir: "C:\\Projects\\ringalert\\fotos"
-  retention_days: 90            # días de retención, configurable
+  retention_days: 90            # días de retención; 0 = nunca
 
 monitoring:
   daily_report_time: "08:00"    # HH:MM

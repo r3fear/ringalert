@@ -31,6 +31,9 @@ class Storage:
         Elimina fotos con más de retention_days días de antigüedad.
         Retorna el número de archivos eliminados.
         """
+        if self.retention_days == 0:
+            return 0
+
         if not os.path.exists(self.photos_dir):
             return 0
 

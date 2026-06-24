@@ -7,7 +7,7 @@ echo ================================================================
 echo   RingAlert - Configuracion de sesion WhatsApp
 echo ================================================================
 echo.
-echo Este script detenara los procesos Node y Chrome activos
+echo Este script detendra los procesos Node y Chrome activos
 echo para evitar conflictos con el servicio en ejecucion.
 echo.
 echo Si el servicio RingAlert esta corriendo como tarea programada,
