@@ -169,7 +169,7 @@ Servidor HTTP en puerto 3000 (solo localhost). Endpoints:
 
 Funciones internas:
 - `log(level, message)`: logging estandarizado con timestamp `YYYY-MM-DD HH:MM:SS - LEVEL - mensaje` (mismo formato que `ringalert.log`); sin emojis
-- `cleanupLockFiles()`: elimina `SingletonLock`, `SingletonCookie` y `SingletonSocket` del directorio de sesión antes de `client.initialize()`; evita que Puppeteer/Chrome falle al arrancar tras un apagado inesperado; usa `fs.existsSync` + `fs.rmSync({ force: true })`; loguea cuántos archivos eliminó; si falla, loguea el error y continúa de todas formas
+- `cleanupLockFiles()`: antes de `client.initialize()`, (1) mata procesos Chrome huérfanos con `taskkill /F /IM chrome.exe /T` (en Windows los locks son archivos bloqueados por el proceso — borrarlos sin matar Chrome primero no funciona), (2) elimina `SingletonLock`, `SingletonCookie`, `SingletonSocket` y `DevToolsActivePort` del directorio de sesión usando rutas absolutas con `__dirname` (para funcionar correctamente independientemente del directorio de trabajo del servicio); loguea cuántos archivos eliminó; si falla, loguea el error y continúa de todas formas
 - `buildLidMap(numbers)`: para cada número, abre el chat por `@c.us` y busca mensajes entrantes con `@lid`; guarda la relación en `lidToNumber`
 - `lidToNumber`: cache en memoria `{ '128905038008497': '5214433958021' }`; permite que el mensaje handler resuelva el `@lid` a número de teléfono real
 

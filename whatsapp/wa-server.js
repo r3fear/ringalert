@@ -2,6 +2,8 @@ const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const http = require('http');
 const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
 
 // Logger con marca de tiempo estandarizada (mismo formato que ringalert.log)
 function log(level, message) {
@@ -86,21 +88,33 @@ client.on('disconnected', reason => {
     log('WARNING', `WhatsApp desconectado: ${reason}`);
 });
 
-// Elimina archivos de bloqueo de Chrome/Puppeteer que quedan tras un apagado inesperado
+// Elimina archivos de bloqueo de Chrome/Puppeteer que quedan tras un apagado inesperado.
+// Primero termina procesos Chrome huérfanos (que impiden borrar el SingletonLock en Windows),
+// luego elimina los archivos. Usa __dirname para rutas absolutas independientes del CWD.
 function cleanupLockFiles() {
-    const sessionDir = '.wwebjs_auth/session-ringalert';
-    const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+    // 1. Matar procesos Chrome que hayan quedado vivos del arranque anterior.
+    //    execSync falla con código 128 si no hay procesos — eso es normal, se ignora.
+    try {
+        execSync('taskkill /F /IM chrome.exe /T', { stdio: 'pipe' });
+        log('INFO', 'Procesos Chrome previos terminados');
+    } catch (e) {
+        // No había procesos Chrome activos
+    }
+
+    // 2. Eliminar archivos de bloqueo con ruta absoluta basada en __dirname
+    const sessionDir = path.join(__dirname, '.wwebjs_auth', 'session-ringalert');
+    const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'DevToolsActivePort'];
     let removed = 0;
     try {
         for (const file of lockFiles) {
-            const fullPath = `${sessionDir}/${file}`;
+            const fullPath = path.join(sessionDir, file);
             if (fs.existsSync(fullPath)) {
                 fs.rmSync(fullPath, { force: true });
                 removed++;
             }
         }
         if (removed > 0) {
-            log('INFO', `Archivos de bloqueo eliminados: ${removed} (${lockFiles.join(', ')})`);
+            log('INFO', `Archivos de bloqueo eliminados: ${removed}`);
         }
     } catch (e) {
         log('ERROR', `Error limpiando archivos de bloqueo: ${e.message}`);
