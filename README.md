@@ -59,6 +59,7 @@ C:\Projects\ringalert\
 │
 ├── whatsapp/
 │   ├── wa-server.js         ← servidor HTTP + cliente WhatsApp Web
+│   ├── wa-login.js          ← script interactivo para autenticar sesión WA
 │   └── package.json
 │
 ├── logs/
@@ -234,6 +235,46 @@ Enviar desde un número autorizado (debe estar en `recipients`) al número secun
 
 ---
 
+## Reconexión de sesión WhatsApp
+
+Cuando la sesión de WhatsApp se pierde (primer arranque, cierre de sesión remota, cuenta cambiada), el log muestra:
+
+```
+ERROR - Fallo de autenticacion WhatsApp: ...
+ERROR - La sesion se perdio — ejecuta setup-whatsapp.bat en el servidor para reconectar
+```
+
+### Proceso de reconexión
+
+1. Conectarse al servidor por AnyDesk
+2. Detener el servicio RingAlert (Task Scheduler o NSSM)
+3. Ejecutar **`setup-whatsapp.bat`** (en la raíz del proyecto — doble clic)
+4. El script detiene procesos Node/Chrome previos automáticamente
+5. Aparece el QR en la ventana de cmd — escanearlo con el número secundario
+6. Al conectar muestra "Sesión iniciada correctamente" y la ventana se puede cerrar
+7. Reiniciar el servicio RingAlert
+
+### Cambiar de cuenta WhatsApp
+
+Si al ejecutar `setup-whatsapp.bat` hay sesión activa, el script pregunta:
+
+```
+Se encontro una sesion de WhatsApp activa.
+Desea iniciar una nueva sesion? (reemplaza la actual) [s/n]:
+```
+
+- Responder `n` → mantiene la sesión actual y sale
+- Responder `s` → elimina la sesión, muestra nuevo QR
+
+### Archivos involucrados
+
+| Archivo | Propósito |
+|---|---|
+| `setup-whatsapp.bat` | Lanzador: detiene procesos, corre `wa-login.js`, pausa al final |
+| `whatsapp/wa-login.js` | Script interactivo: detecta sesión, muestra QR, sale al conectar |
+
+---
+
 ## Arranque automático
 
 `start_ringalert.bat` registrado en **Task Scheduler** de Windows como tarea al inicio:
@@ -351,4 +392,6 @@ Instalar: `cd whatsapp && npm install`
 - El archivo WAV se pasa con comillas simples al comando PowerShell; las comillas simples en la ruta se escapan como `''` (convención PowerShell)
 - WhatsApp multi-device usa `@lid` (Linked Device ID) como identificador del remitente en lugar del número de teléfono — `whatsapp-web.js` no expone una API para mapear `@lid` → número directamente; la solución es `buildLidMap` que lee el historial del chat indexado por `@c.us` para encontrar el `@lid` correspondiente
 - Los comandos de WhatsApp responden solo al remitente (`send_direct`) y no a todos los recipients (`send_alert`); la autorización se valida comparando dígitos del sender contra la lista de `recipients` en config
+- `wa-login.js` es independiente de `wa-server.js` — usa la misma `LocalAuth` config para compartir sesión; al terminar llama `client.destroy()` y sale; NO debe correr mientras `wa-server.js` esté activo (misma `userDataDir` → conflicto Chrome); `setup-whatsapp.bat` mata Node/Chrome antes de correrlo
+- `wa-server.js` loguea `ERROR` con instrucción de correr `setup-whatsapp.bat` en eventos `auth_failure` y `disconnected`
 - El `log(level, message)` de `wa-server.js` produce el mismo formato de timestamp que Python (`YYYY-MM-DD HH:MM:SS - LEVEL - mensaje`) para facilitar correlación entre `ringalert.log` y `whatsapp.log`

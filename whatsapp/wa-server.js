@@ -83,9 +83,16 @@ client.on('message', msg => {
     if (inbox.length > 50) inbox.shift();
 });
 
+client.on('auth_failure', msg => {
+    isReady = false;
+    log('ERROR', `Fallo de autenticacion WhatsApp: ${msg}`);
+    log('ERROR', 'La sesion se perdio — ejecuta setup-whatsapp.bat en el servidor para reconectar');
+});
+
 client.on('disconnected', reason => {
     isReady = false;
     log('WARNING', `WhatsApp desconectado: ${reason}`);
+    log('WARNING', 'Si la sesion se perdio, ejecuta setup-whatsapp.bat para reconectar');
 });
 
 // Elimina archivos de bloqueo de Chrome/Puppeteer que quedan tras un apagado inesperado.
