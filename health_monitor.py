@@ -67,22 +67,11 @@ class HealthMonitor:
         is_connected = self.wa_sender.is_server_alive()
 
         if self.wa_was_connected and not is_connected:
-            logger.error("WhatsApp se desconectó — enviando alerta por email")
-            self.wa_sender.send_email_fallback(
-                "⚠️ El servicio de WhatsApp de RingAlert se ha desconectado.\n"
-                f"Hora: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
-                "Revisa el servidor y reinicia wa-server.js si es necesario.\n\n"
-                "Para silenciar estas alertas responde SILENCIAR Xh por WhatsApp "
-                "cuando el servicio se restaure."
-            )
+            logger.error("wa-gateway no disponible — las alertas de email las gestiona wa-gateway")
             self.wa_was_connected = False
 
         elif not self.wa_was_connected and is_connected:
-            logger.info("WhatsApp reconectado — notificando por email")
-            self.wa_sender.send_email_fallback(
-                "✅ El servicio de WhatsApp de RingAlert se ha restaurado.\n"
-                f"Hora: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
-            )
+            logger.info("wa-gateway reconectado")
             self.wa_was_connected = True
 
     async def check_daily_report(self):

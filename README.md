@@ -20,7 +20,7 @@ Cuando alguien toca el timbre o se detecta movimiento, el sistema:
 | Monitor Ring | Python | 3.11+ / 3.14+ |
 | Librería Ring | ring-doorbell | 0.9.14 |
 | Captura cámara | ffmpeg | 8.1.1 |
-| Servidor WhatsApp | Node.js + whatsapp-web.js | 24.x / latest |
+| Gateway WhatsApp | wa-gateway (Node.js + whatsapp-web.js) | servicio externo |
 | Configuración | PyYAML | 6.0+ |
 | Email fallback | smtplib (stdlib) | - |
 
@@ -53,18 +53,12 @@ C:\Projects\ringalert\
 ├── main.py                  ← orquestador principal
 ├── ring_monitor.py          ← polling Ring, detección de eventos
 ├── camera.py                ← captura de frame RTSP vía ffmpeg
-├── wa_sender.py             ← envío WhatsApp + email de respaldo
+├── wa_sender.py             ← cliente HTTP hacia wa-gateway + email de respaldo
 ├── storage.py               ← historial local y limpieza
 ├── health_monitor.py        ← reporte diario, alertas, comandos
 │
-├── whatsapp/
-│   ├── wa-server.js         ← servidor HTTP + cliente WhatsApp Web
-│   ├── wa-login.js          ← script interactivo para autenticar sesión WA
-│   └── package.json
-│
 ├── logs/
-│   ├── ringalert.log        ← log principal (NO en GitHub)
-│   └── whatsapp.log         ← log del servidor WA (NO en GitHub)
+│   └── ringalert.log        ← log principal (NO en GitHub)
 │
 └── fotos/                   ← historial (NO en GitHub)
     └── YYYY/MM/DD/
@@ -88,16 +82,21 @@ C:\Projects\ringalert\
       ├──► [camera.py] ──► ffmpeg ──► [SWANN CH02 RTSP] ──► foto.jpg
       └──► [wa_sender.py]
                 ├── is_server_alive() → POST /send (texto + foto)
-                │         └──► [wa-server.js :3000] ──► WhatsApp
-                └── si WA caído → send_email_fallback() ──► Gmail
+                │         └──► [wa-gateway :3000] ──► WhatsApp
+                └── si wa-gateway caído → send_email_fallback() ──► Gmail
 
 [health_monitor.py] (loop cada 60s)
-      ├── check_whatsapp_health() → email si WA se cae/restaura
+      ├── check_whatsapp_health() → loguea estado (emails los gestiona wa-gateway)
       ├── check_daily_report() → reporte por WA a hora configurada
       └── cleanup_old_photos() → limpieza diaria de fotos antiguas
 
 [main.py — poll_inbox()] (loop cada 5s)
-      └── GET /inbox ──► [wa-server.js] ──► health_monitor.process_whatsapp_command()
+      └── GET /inbox ──► [wa-gateway] ──► health_monitor.process_whatsapp_command()
+
+[wa-gateway] (servicio independiente — ver repo wa-gateway)
+      ├── Gestiona conexión WhatsApp Web + sesión QR
+      ├── Envía email de alerta en desconexión/reconexión de WhatsApp
+      └── Expone API REST: /send, /status, /inbox, /register-numbers, /health
 ```
 
 ---
@@ -110,7 +109,7 @@ Punto de entrada. Orquesta todos los módulos con `asyncio.gather`. Contiene:
 - `play_doorbell_sound(config)`: reproduce el sonido configurado vía `asyncio.create_subprocess_exec` + PowerShell `System.Media.SoundPlayer`; solo ejecuta en eventos `ding`, corre en segundo plano sin bloquear; solo soporta WAV
 - `on_ring_event(event_type, doorbell_name)`: callback que dispara el sonido (ding), captura foto y envía WA
 - `poll_inbox()`: loop que lee mensajes entrantes de WA; pasa `body` y `sender` a `process_whatsapp_command`
-- Al arrancar (si WA conectado): llama `POST /register-recipients` con la lista de recipients para resolver @lid de WhatsApp multi-device
+- Al arrancar (si WA conectado): llama `POST /register-numbers` con la lista de recipients para resolver @lid de WhatsApp multi-device
 
 ### `ring_monitor.py`
 Funciones de módulo:
@@ -136,11 +135,11 @@ Función `capture_frame(rtsp_url, output_path, ffmpeg_path)`:
 
 ### `wa_sender.py`
 Clase `WhatsAppSender`:
-- `is_server_alive()`: GET `/status` al servidor Node
-- `send_alert(message, image_path)`: broadcast a todos los recipients activos
+- `is_server_alive()`: GET `/status` a wa-gateway; retorna `True` solo si `connected: true`
+- `send_alert(message, image_path)`: broadcast a todos los recipients activos; si wa-gateway no responde, llama `send_email_fallback`
 - `send_direct(to, message, image_path)`: envía a un destinatario específico (número o JID completo con `@`); usado por `process_whatsapp_command` para responder solo al remitente
-- `_send_request(to, message, imagePath)`: POST `/send` al servidor Node (método interno)
-- `send_email_fallback(message)`: SMTP Gmail, solo para caídas de WA
+- `_send_request(to, message, imagePath)`: POST `/send` a wa-gateway (método interno)
+- `send_email_fallback(message)`: SMTP Gmail; se activa cuando wa-gateway no está disponible (caída del proceso) — las alertas de desconexión interna de WhatsApp las gestiona wa-gateway
 - `build_message(event_type, doorbell_name)`: formatea el texto del mensaje
 - Recipients: filtra strings vacíos automáticamente (soporta 1-3 números)
 
@@ -152,7 +151,7 @@ Clase `Storage`:
 
 ### `health_monitor.py`
 Clase `HealthMonitor`:
-- `check_whatsapp_health()`: detecta desconexión/reconexión de WA y envía email
+- `check_whatsapp_health()`: detecta desconexión/reconexión de wa-gateway y loguea el cambio de estado (los emails de alerta los gestiona wa-gateway)
 - `check_daily_report()`: envía reporte a `daily_report_time` una vez por día
 - `_photos_today()`: cuenta fotos del día actual
 - `build_daily_report()`: genera texto del reporte con batería, estado WA, fotos del día
@@ -161,23 +160,15 @@ Clase `HealthMonitor`:
 - `silence(hours)`: silencia alertas por N horas
 - `is_silenced()`: verifica si las alertas están silenciadas
 
-### `wa-server.js`
-Servidor HTTP en puerto 3000 (solo localhost). Endpoints:
-- `POST /send` — body: `{to, message, imagePath}` — envía texto y/o imagen; `to` acepta número plano o JID completo con `@`
-- `POST /register-recipients` — body: `{numbers: [...]}` — registra destinatarios y construye el mapa `@lid → número` buscando en el historial de cada chat
-- `GET /status` — retorna `{ok, connected}`
-- `GET /inbox` — retorna y vacía la cola de mensajes entrantes
+### wa-gateway (servicio externo)
 
-Funciones internas:
-- `log(level, message)`: logging estandarizado con timestamp `YYYY-MM-DD HH:MM:SS - LEVEL - mensaje` (mismo formato que `ringalert.log`); sin emojis
-- `cleanupLockFiles()`: antes de `client.initialize()`, (1) mata procesos Chrome huérfanos con `taskkill /F /IM chrome.exe /T` (en Windows los locks son archivos bloqueados por el proceso — borrarlos sin matar Chrome primero no funciona), (2) elimina `SingletonLock`, `SingletonCookie`, `SingletonSocket` y `DevToolsActivePort` del directorio de sesión usando rutas absolutas con `__dirname` (para funcionar correctamente independientemente del directorio de trabajo del servicio); loguea cuántos archivos eliminó; si falla, loguea el error y continúa de todas formas
-- `buildLidMap(numbers)`: para cada número, abre el chat por `@c.us` y busca mensajes entrantes con `@lid`; guarda la relación en `lidToNumber`
-- `lidToNumber`: cache en memoria `{ '128905038008497': '5214433958021' }`; permite que el mensaje handler resuelva el `@lid` a número de teléfono real
+El módulo de WhatsApp corre como servicio independiente. Ver su propio repositorio para documentación completa. RingAlert lo consume vía HTTP en `server_url` (por defecto `http://127.0.0.1:3000`).
 
-Usa `whatsapp-web.js` con `LocalAuth({ clientId: 'ringalert' })` (sesión guardada en `.wwebjs_auth/session-ringalert/`).
-Cola de inbox limitada a 50 mensajes; los más antiguos se descartan automáticamente.
-Sesión vinculada escaneando QR con número secundario dedicado.
-Chrome instalado en `C:\Program Files\Google\Chrome\Application\chrome.exe`.
+Endpoints utilizados por RingAlert:
+- `POST /send` — envía texto y/o imagen
+- `POST /register-numbers` — registra destinatarios para resolver `@lid` (WhatsApp multi-device)
+- `GET /status` — verifica conexión WhatsApp (`connected: true/false`)
+- `GET /inbox` — retorna y vacía mensajes entrantes
 
 ---
 
@@ -200,7 +191,7 @@ whatsapp:
     - ""                        # número 3 (opcional)
 
 storage:
-  photos_dir: "C:\\Projects\\ringalert\\fotos"
+  photos_dir: "C:\\ruta\\para\\fotos"
   retention_days: 90            # días de retención; 0 = nunca
 
 monitoring:
@@ -237,7 +228,7 @@ Enviar desde un número autorizado (debe estar en `recipients`) al número secun
 
 ## Reconexión de sesión WhatsApp
 
-Cuando la sesión de WhatsApp se pierde (primer arranque, cierre de sesión remota, cuenta cambiada), el log muestra:
+La sesión de WhatsApp la gestiona **wa-gateway**. Cuando se pierde la sesión, el log de wa-gateway muestra:
 
 ```
 ERROR - Fallo de autenticacion WhatsApp: ...
@@ -247,31 +238,12 @@ ERROR - La sesion se perdio — ejecuta setup-whatsapp.bat en el servidor para r
 ### Proceso de reconexión
 
 1. Conectarse al servidor por AnyDesk
-2. Detener el servicio RingAlert (Task Scheduler o NSSM)
-3. Ejecutar **`setup-whatsapp.bat`** (en la raíz del proyecto — doble clic)
-4. El script detiene procesos Node/Chrome previos automáticamente
-5. Aparece el QR en la ventana de cmd — escanearlo con el número secundario
-6. Al conectar muestra "Sesión iniciada correctamente" y la ventana se puede cerrar
-7. Reiniciar el servicio RingAlert
+2. Ir al directorio de wa-gateway
+3. Ejecutar **`setup-whatsapp.bat`** de wa-gateway (opción 1 — Reconectar sesión)
+4. Escanear el QR con el número secundario
+5. wa-gateway retoma automáticamente; RingAlert no requiere reinicio
 
-### Cambiar de cuenta WhatsApp
-
-Si al ejecutar `setup-whatsapp.bat` hay sesión activa, el script pregunta:
-
-```
-Se encontro una sesion de WhatsApp activa.
-Desea iniciar una nueva sesion? (reemplaza la actual) [s/n]:
-```
-
-- Responder `n` → mantiene la sesión actual y sale
-- Responder `s` → elimina la sesión, muestra nuevo QR
-
-### Archivos involucrados
-
-| Archivo | Propósito |
-|---|---|
-| `setup-whatsapp.bat` | Lanzador: detiene procesos, corre `wa-login.js`, pausa al final |
-| `whatsapp/wa-login.js` | Script interactivo: detecta sesión, muestra QR, sale al conectar |
+Ver documentación completa en el README de wa-gateway.
 
 ---
 
@@ -279,13 +251,12 @@ Desea iniciar una nueva sesion? (reemplaza la actual) [s/n]:
 
 `start_ringalert.bat` registrado en **Task Scheduler** de Windows como tarea al inicio:
 - Nombre de tarea: `RingAlert`
-- Inicia `wa-server.js` en ventana minimizada con log a `logs/whatsapp.log`
-- Espera 10 segundos
 - Inicia `main.py` en ventana minimizada
+- wa-gateway corre como servicio NSSM independiente (debe estar activo antes)
 
-### Alternativa con NSSM
+### NSSM
 
-Si se usa **NSSM** (Non-Sucking Service Manager) en lugar de Task Scheduler, el ejecutable real de Python en el servidor es:
+Si se usa **NSSM** (Non-Sucking Service Manager) en lugar de Task Scheduler para `main.py`, el ejecutable real de Python en el servidor es:
 
 ```
 C:\Users\AppData\Local\Python\pythoncore-3.14-64\python.exe
@@ -342,12 +313,8 @@ Get-ScheduledTask -TaskName "RingAlert"
 
 - `config.yaml` — credenciales reales
 - `ring_token*.cache` — token de sesión Ring
-- `whatsapp/_IGNORE_*` — sesión antigua
-- `whatsapp/.wwebjs_auth/` — sesión WhatsApp Web
-- `whatsapp/.wwebjs_cache/` — cache WhatsApp
 - `fotos/` — historial de fotos
 - `logs/` — archivos de log
-- `node_modules/` — dependencias npm
 - `__pycache__/` — cache Python
 
 ---
@@ -361,16 +328,9 @@ pyyaml>=6.0
 ```
 Instalar: `py -m pip install -r requirements.txt`
 
-### Node.js (`whatsapp/package.json`)
-```
-whatsapp-web.js
-qrcode-terminal
-```
-Instalar: `cd whatsapp && npm install`
-
 ### Sistema
 - ffmpeg en PATH (instalado con `winget install --id Gyan.FFmpeg`)
-- Google Chrome en `C:\Program Files\Google\Chrome\Application\chrome.exe`
+- wa-gateway corriendo como servicio NSSM (ver su propio repositorio)
 
 ---
 
@@ -379,7 +339,7 @@ Instalar: `cd whatsapp && npm install`
 - La librería `ring-doorbell 0.9.14` es **completamente asíncrona** — todos los métodos son `async/await`
 - `ring.video_doorbells` **no existe** en esta versión — usar `ring.devices().doorbells`
 - Los snapshots y descarga de videos requieren **suscripción Ring** — no disponible en esta instalación
-- El servidor WhatsApp **debe estar corriendo** antes de iniciar `main.py`
+- **wa-gateway debe estar corriendo** antes de iniciar `main.py` — es un servicio NSSM independiente
 - El número de WhatsApp debe tener código de país sin `+`: ejemplo `5215512345678`
 - `async_update_health_data()` debe llamarse antes de leer `battery_life`
 - La sesión `aiohttp` de `ring-doorbell` se cierra explícitamente en el `finally` de `RingMonitor.start()` — el warning `Unclosed client session` ya no debe aparecer al detener el servicio
@@ -390,8 +350,8 @@ Instalar: `cd whatsapp && npm install`
 - `play_doorbell_sound` usa `subprocess` + PowerShell `System.Media.SoundPlayer` para reproducir audio — no usa librerías Python de audio para garantizar compatibilidad con Session 0 (NSSM); las APIs de audio de Python (`playsound`, `pygame`, `winsound`) requieren una sesión de usuario activa y fallan silenciosamente en servicios de Windows
 - `System.Media.SoundPlayer` solo soporta WAV; para MP3 habría que usar `MediaPlayer` de WPF (`System.Windows.Media.MediaPlayer`) con su propia complejidad
 - El archivo WAV se pasa con comillas simples al comando PowerShell; las comillas simples en la ruta se escapan como `''` (convención PowerShell)
-- WhatsApp multi-device usa `@lid` (Linked Device ID) como identificador del remitente en lugar del número de teléfono — `whatsapp-web.js` no expone una API para mapear `@lid` → número directamente; la solución es `buildLidMap` que lee el historial del chat indexado por `@c.us` para encontrar el `@lid` correspondiente
+- WhatsApp multi-device usa `@lid` (Linked Device ID) como identificador del remitente — wa-gateway resuelve esto internamente via `POST /register-numbers`; RingAlert llama este endpoint al arrancar con la lista de `recipients`
 - Los comandos de WhatsApp responden solo al remitente (`send_direct`) y no a todos los recipients (`send_alert`); la autorización se valida comparando dígitos del sender contra la lista de `recipients` en config
-- `wa-login.js` es independiente de `wa-server.js` — usa la misma `LocalAuth` config para compartir sesión; al terminar llama `client.destroy()` y sale; NO debe correr mientras `wa-server.js` esté activo (misma `userDataDir` → conflicto Chrome); `setup-whatsapp.bat` mata Node/Chrome antes de correrlo
-- `wa-server.js` loguea `ERROR` con instrucción de correr `setup-whatsapp.bat` en eventos `auth_failure` y `disconnected`
-- El `log(level, message)` de `wa-server.js` produce el mismo formato de timestamp que Python (`YYYY-MM-DD HH:MM:SS - LEVEL - mensaje`) para facilitar correlación entre `ringalert.log` y `whatsapp.log`
+- `health_monitor.check_whatsapp_health()` ya no envía emails — solo loguea el cambio de estado; los emails de alerta por desconexión/reconexión de WhatsApp los gestiona wa-gateway internamente
+- `wa_sender.send_email_fallback()` se activa únicamente cuando wa-gateway no responde en HTTP (proceso caído); en ese caso wa-gateway tampoco puede mandar su propio email, así que RingAlert es la única notificación
+- Esta rama (`conexion-wa-gateway`) reemplaza el módulo `whatsapp/` local por el servicio externo wa-gateway; la rama `main` conserva el módulo embebido como respaldo

@@ -7,7 +7,7 @@ camera:
   ffmpeg_path: "ffmpeg"         # o ruta completa si no está en PATH
 
 whatsapp:
-  server_url: "http://127.0.0.1:3000"
+  server_url: "http://127.0.0.1:3000"  # URL del servicio wa-gateway
   recipients:
     - "521XXXXXXXXXX"           # número 1 (requerido)
     - ""                        # número 2 (opcional)

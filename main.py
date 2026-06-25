@@ -80,7 +80,7 @@ async def main():
             numbers = [r for r in config.get("whatsapp", {}).get("recipients", []) if r and r.strip()]
             payload = json.dumps({"numbers": numbers}).encode("utf-8")
             req = urllib.request.Request(
-                f"{config['whatsapp']['server_url']}/register-recipients",
+                f"{config['whatsapp']['server_url']}/register-numbers",
                 data=payload,
                 headers={"Content-Type": "application/json"}
             )
