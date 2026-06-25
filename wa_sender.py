@@ -143,7 +143,7 @@ class WhatsAppSender:
                 msg = MIMEMultipart("related")
                 msg.attach(MIMEText(html, "html", "utf-8"))
                 with open(image_path, "rb") as f:
-                    img = MIMEImage(f.read())
+                    img = MIMEImage(f.read(), _subtype="jpeg")
                     img.add_header("Content-ID", "<ringalert_photo>")
                     img.add_header("Content-Disposition", "inline", filename="foto.jpg")
                     msg.attach(img)
