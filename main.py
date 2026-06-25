@@ -116,6 +116,8 @@ async def main():
 
         # 2. Construir mensaje
         message = wa_sender.build_message(event_type, doorbell_name)
+        if not photo_ok:
+            message += "\n⚠️ No se pudo capturar foto de la cámara."
 
         # 3. Enviar por WhatsApp
         wa_sender.send_alert(message, photo_path)

@@ -1,8 +1,10 @@
 import json
 import logging
+import os
 import smtplib
 import urllib.request
 from datetime import datetime
+from email.mime.image import MIMEImage
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -73,7 +75,7 @@ class WhatsAppSender:
 
         if not self.is_server_alive():
             logger.error("Servidor WhatsApp no disponible — enviando alerta por email")
-            self.send_email_fallback(message)
+            self.send_email_fallback(message, image_path)
             return False
 
         success_count = 0
@@ -87,39 +89,76 @@ class WhatsAppSender:
 
         return success_count > 0
 
-    def send_email_fallback(self, message: str):
+    def send_email_fallback(self, message: str, image_path: str = ""):
         """
         Envía email de respaldo cuando WhatsApp no está disponible.
+        Incluye la foto adjunta embebida si está disponible.
         """
         try:
             smtp_server = self.email_config.get("smtp_server", "smtp.gmail.com")
             smtp_port = self.email_config.get("smtp_port", 587)
-            sender = self.email_config.get("sender", "")
+            sender_addr = self.email_config.get("sender", "")
             password = self.email_config.get("password", "")
             recipients = self.email_config.get("recipients", [])
 
-            if not sender or not password or not recipients:
+            if not sender_addr or not password or not recipients:
                 logger.error("Configuración de email incompleta")
                 return
 
-            subject = f"⚠️ RingAlert — WhatsApp caído {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-            body = (
-                f"El servicio de WhatsApp de RingAlert no está disponible.\n\n"
-                f"Mensaje original:\n{message}\n\n"
-                f"Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n\n"
-                f"Revisa el servidor para restaurar el servicio."
+            has_photo = bool(image_path and os.path.exists(image_path))
+            subject = f"🔔 RingAlert — {datetime.now().strftime('%d/%m/%Y %H:%M')} (WhatsApp no disponible)"
+            message_html = message.replace("\n", "<br>")
+
+            photo_section = (
+                '<img src="cid:ringalert_photo" style="max-width:100%;border-radius:8px;margin-top:12px;">'
+                if has_photo else
+                '<p style="color:#aaa;font-size:13px;text-align:center;margin:16px 0;">📷 Foto no disponible</p>'
             )
 
-            msg = MIMEMultipart()
-            msg["From"] = sender
+            html = f"""<html><body style="margin:0;padding:0;background:#f0f0f0;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f0f0;padding:24px 0;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:white;border-radius:12px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,0.12);">
+        <tr><td style="background:#1a1a2e;padding:24px;text-align:center;">
+          <div style="font-size:28px;">🔔</div>
+          <div style="color:white;font-size:20px;font-weight:bold;margin-top:6px;">RingAlert</div>
+          <div style="color:#aaa;font-size:13px;margin-top:4px;">Notificación por email — WhatsApp no disponible</div>
+        </td></tr>
+        <tr><td style="padding:28px 32px;">
+          <p style="font-size:16px;color:#222;margin:0 0 20px;line-height:1.6;">{message_html}</p>
+          <div style="text-align:center;">{photo_section}</div>
+        </td></tr>
+        <tr><td style="background:#f8f8f8;padding:16px 32px;border-top:1px solid #eee;text-align:center;">
+          <p style="color:#aaa;font-size:12px;margin:0;">
+            Generado automáticamente por RingAlert<br>
+            Restaura <strong>wa-gateway</strong> para volver a recibir alertas por WhatsApp.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+
+            if has_photo:
+                msg = MIMEMultipart("related")
+                msg.attach(MIMEText(html, "html", "utf-8"))
+                with open(image_path, "rb") as f:
+                    img = MIMEImage(f.read())
+                    img.add_header("Content-ID", "<ringalert_photo>")
+                    img.add_header("Content-Disposition", "inline", filename="foto.jpg")
+                    msg.attach(img)
+            else:
+                msg = MIMEMultipart()
+                msg.attach(MIMEText(html, "html", "utf-8"))
+
+            msg["From"] = sender_addr
             msg["To"] = ", ".join(recipients)
             msg["Subject"] = subject
-            msg.attach(MIMEText(body, "plain", "utf-8"))
 
             with smtplib.SMTP(smtp_server, smtp_port) as server:
                 server.starttls()
-                server.login(sender, password)
-                server.sendmail(sender, recipients, msg.as_string())
+                server.login(sender_addr, password)
+                server.sendmail(sender_addr, recipients, msg.as_string())
 
             logger.info(f"📧 Email de respaldo enviado a {recipients}")
 
