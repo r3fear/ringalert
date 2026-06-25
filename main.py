@@ -134,12 +134,30 @@ async def main():
                 )
                 with urllib.request.urlopen(req, timeout=5) as resp:
                     data = json.loads(resp.read())
+                    lid_detected = False
                     for msg in data.get("messages", []):
                         body = msg.get("body", "").strip()
                         sender = msg.get("from", "")
+                        if sender.endswith("@lid"):
+                            lid_detected = True
                         if body:
                             logger.info(f"Comando recibido de {sender}: {body}")
                             await health_monitor.process_whatsapp_command(body, sender)
+                    if lid_detected:
+                        # Refrescar mapa @lid en wa-gateway para que próximos mensajes
+                        # lleguen con el número resuelto
+                        try:
+                            numbers = [r for r in config.get("whatsapp", {}).get("recipients", []) if r and r.strip()]
+                            payload = json.dumps({"numbers": numbers}).encode("utf-8")
+                            req2 = urllib.request.Request(
+                                f"{config['whatsapp']['server_url']}/register-numbers",
+                                data=payload,
+                                headers={"Content-Type": "application/json"}
+                            )
+                            urllib.request.urlopen(req2, timeout=10)
+                            logger.info("Mapa @lid actualizado — próximos mensajes llegarán con número resuelto")
+                        except Exception as e:
+                            logger.warning(f"No se pudo actualizar mapa @lid: {e}")
             except Exception as e:
                 logger.error(f"Error en poll_inbox: {e}")
             await asyncio.sleep(5)

@@ -98,6 +98,9 @@ class HealthMonitor:
     def _is_authorized_sender(self, sender: str) -> bool:
         if not sender:
             return True
+        # @lid = wa-gateway no pudo resolver el número aún; poll_inbox dispara refresh
+        if sender.endswith('@lid'):
+            return True
         sender_digits = ''.join(filter(str.isdigit, sender))
         authorized = [
             ''.join(filter(str.isdigit, r))
