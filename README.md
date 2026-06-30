@@ -343,4 +343,4 @@ Instalar: `py -m pip install -r requirements.txt`
 
 RingAlert está construido sobre [python-ring-doorbell](https://github.com/tchellomello/python-ring-doorbell), una librería no oficial para la API de Ring desarrollada por [tchellomello](https://github.com/tchellomello) y sus colaboradores. Esta librería gestiona la autenticación, el token OAuth2, el polling de eventos y la comunicación con la API de Ring.
 
-> **Nota:** python-ring-doorbell y wa-gateway no están afiliados ni respaldados por Ring, Amazon, WhatsApp ni Meta.
+> **Nota:** python-ring-doorbell no esta afiliado ni respaldado por Ring, Amazon, WhatsApp ni Meta.
