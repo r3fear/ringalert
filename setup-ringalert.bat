@@ -69,7 +69,7 @@ echo.
 echo   El token se guardara en: ring_token.cache
 echo.
 echo   IMPORTANTE: si RingAlert esta corriendo como servicio,
-echo   no es necesario detenerlo para autenticar — el token
+echo   no es necesario detenerlo para autenticar  -  el token
 echo   se renueva automaticamente mientras el servicio esta activo.
 echo.
 pause
@@ -140,7 +140,7 @@ if exist ring_token.cache (
         echo       Intenta eliminarlo manualmente.
     )
 ) else (
-    echo   [?] ring_token.cache no existia — nada que eliminar.
+    echo   [?] ring_token.cache no existia  -  nada que eliminar.
 )
 echo.
 pause
@@ -208,7 +208,7 @@ if not exist "%~dp0ring_token.cache" (
     echo   [OK] ring_token.cache
 )
 
-:: 6. wa-gateway (informativo — no bloquea la instalacion)
+:: 6. wa-gateway (informativo  -  no bloquea la instalacion)
 set "WA_URL=http://127.0.0.1:3000"
 if exist "%~dp0config.yaml" (
     for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$m=(sls 'server_url' '%~dp0config.yaml').Line; if($m -match '""([^""]+)""'){$matches[1]}else{'http://127.0.0.1:3000'}"`) do set "WA_URL=%%i"
@@ -217,7 +217,7 @@ curl -s "%WA_URL%/status" >nul 2>&1
 if %errorlevel% neq 0 (
     echo   [?] wa-gateway no responde en %WA_URL%
     echo       Las alertas de timbre se enviaran por email hasta que
-    echo       wa-gateway este disponible — el servicio se instala igual.
+    echo       wa-gateway este disponible  -  el servicio se instala igual.
 ) else (
     echo   [OK] wa-gateway disponible en %WA_URL%
 )
@@ -348,18 +348,19 @@ echo  ============================================================
 echo     Estado del token Ring
 echo  ============================================================
 echo.
-if exist ring_token.cache (
-    echo   [OK] ring_token.cache encontrado
-    for %%q in (ring_token.cache) do echo   Ultima modificacion: %%~tq
-    echo.
-    echo   El token se renueva automaticamente mientras el servicio
-    echo   esta corriendo. Si lleva tiempo detenido, puede que
-    echo   necesites re-autenticar (opcion 1).
-) else (
-    echo   [!] ring_token.cache NO encontrado.
-    echo.
-    echo   Debes autenticarte primero con la opcion 1.
-)
+if not exist ring_token.cache goto TOKEN_NO_ENCONTRADO
+echo   [OK] ring_token.cache encontrado
+for %%q in (ring_token.cache) do echo   Ultima modificacion: %%~tq
+echo.
+echo   El token se renueva automaticamente mientras el servicio
+echo   esta corriendo. Si lleva tiempo detenido, puede que
+echo   necesites re-autenticar (opcion 1).
+goto TOKEN_FIN
+:TOKEN_NO_ENCONTRADO
+echo   [!] ring_token.cache NO encontrado.
+echo.
+echo   Debes autenticarte primero con la opcion 1.
+:TOKEN_FIN
 echo.
 pause
 goto MENU
@@ -372,14 +373,14 @@ echo  ============================================================
 echo     Log en tiempo real  --  Ctrl+C para salir
 echo  ============================================================
 echo.
-if not exist "logs\ringalert.log" (
-    echo   [!] El archivo de log no existe todavia.
-    echo       Inicia el servicio primero (opcion 4).
-    echo.
-    pause
-    goto MENU
-)
+if not exist "logs\ringalert.log" goto LOG_NO_EXISTE
 powershell -NoProfile -Command "Get-Content 'logs\ringalert.log' -Wait -Tail 30"
+goto MENU
+:LOG_NO_EXISTE
+echo   [!] El archivo de log no existe todavia.
+echo       Inicia el servicio primero (opcion 4).
+echo.
+pause
 goto MENU
 
 :: ================================================================
