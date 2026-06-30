@@ -2,7 +2,7 @@
 color 07
 title RingAlert - Panel de Control
 cd /d "%~dp0"
-set "SERVICE=RingAlertMain"
+set "SERVICE=RingAlert-Main"
 
 :: ================================================================
 :MENU
@@ -350,7 +350,7 @@ echo  ============================================================
 echo.
 if exist ring_token.cache (
     echo   [OK] ring_token.cache encontrado
-    for %%f in (ring_token.cache) do echo   Ultima modificacion: %%~tf
+    for %%q in (ring_token.cache) do echo   Ultima modificacion: %%~tq
     echo.
     echo   El token se renueva automaticamente mientras el servicio
     echo   esta corriendo. Si lleva tiempo detenido, puede que
@@ -372,14 +372,14 @@ echo  ============================================================
 echo     Log en tiempo real  --  Ctrl+C para salir
 echo  ============================================================
 echo.
-if not exist "%~dp0logs\ringalert.log" (
+if not exist "logs\ringalert.log" (
     echo   [!] El archivo de log no existe todavia.
     echo       Inicia el servicio primero (opcion 4).
     echo.
     pause
     goto MENU
 )
-powershell -NoProfile -Command "Get-Content '%~dp0logs\ringalert.log' -Wait -Tail 30"
+powershell -NoProfile -Command "Get-Content 'logs\ringalert.log' -Wait -Tail 30"
 goto MENU
 
 :: ================================================================
