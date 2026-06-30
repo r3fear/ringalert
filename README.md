@@ -25,7 +25,7 @@ Cuando alguien toca el timbre o se detecta movimiento, el sistema:
 | Componente | Tecnología | Versión |
 |---|---|---|
 | Orquestador | Python | 3.11+ |
-| Librería Ring | ring-doorbell | 0.9.14 |
+| Librería Ring | [ring-doorbell](https://github.com/tchellomello/python-ring-doorbell) | 0.9.14 |
 | Configuración | PyYAML | 6.0+ |
 | Captura cámara | ffmpeg | cualquiera con RTSP |
 | Gateway WhatsApp | [wa-gateway](https://github.com/r3fear/wa-gateway) (Node.js + whatsapp-web.js) | servicio externo |
@@ -320,13 +320,13 @@ Instalar: `py -m pip install -r requirements.txt`
 
 ## Notas para IA
 
-- La librería `ring-doorbell 0.9.14` es **completamente asíncrona** — todos los métodos son `async/await`
+- La librería [`ring-doorbell`](https://github.com/tchellomello/python-ring-doorbell) `0.9.14` es **completamente asíncrona** — todos los métodos son `async/await`
 - `ring.video_doorbells` **no existe** en esta versión — usar `ring.devices().doorbells`
 - Los snapshots y descarga de videos requieren **suscripción Ring** — no disponible en esta instalación
 - **wa-gateway debe estar corriendo antes** de iniciar `main.py` — es un servicio NSSM independiente
 - El número de WhatsApp debe tener código de país sin `+`: ejemplo `5215512345678`
 - `async_update_health_data()` debe llamarse antes de leer `battery_life`
-- La sesión `aiohttp` de `ring-doorbell` se cierra explícitamente en el `finally` de `RingMonitor.start()` para evitar el warning `Unclosed client session`
+- La sesión `aiohttp` de [`ring-doorbell`](https://github.com/tchellomello/python-ring-doorbell) se cierra explícitamente en el `finally` de `RingMonitor.start()` para evitar el warning `Unclosed client session`
 - WhatsApp multi-device usa `@lid` como identificador del remitente. `_is_authorized_sender()` acepta `@lid` sin validar (wa-gateway aún no resolvió el número); `poll_inbox()` detecta `@lid` en inbox y llama `POST /register-numbers` para refrescar el mapa en wa-gateway
 - RingAlert usa el sistema de consumers de wa-gateway con el nombre `"ringalert"`. Llama `POST /register-consumer` al arrancar y `GET /inbox?consumer=ringalert` en el loop. Si wa-gateway se reinicia, el consumer se pierde; `poll_inbox()` lo detecta (respuesta `ok: false` con "no registrado") y lo re-registra automáticamente
 - `health_monitor.check_whatsapp_health()` solo loguea cambios de estado — no envía emails. Los emails de desconexión/reconexión de WhatsApp los gestiona wa-gateway internamente
@@ -336,3 +336,13 @@ Instalar: `py -m pip install -r requirements.txt`
 - `play_doorbell_sound` usa PowerShell `System.Media.SoundPlayer` para reproducir audio en Session 0 (NSSM) — solo soporta WAV; las rutas con comillas simples se escapan como `''`
 - Los comandos de WhatsApp responden solo al remitente (`send_direct`) — no a todos los recipients (`send_alert`)
 - Esta rama (`conexion-wa-gateway`) reemplaza el módulo `whatsapp/` local por el servicio externo wa-gateway. La rama `main` conserva el módulo embebido como respaldo histórico
+
+---
+
+## Créditos
+
+RingAlert está construido sobre [python-ring-doorbell](https://github.com/tchellomello/python-ring-doorbell), una librería no oficial para la API de Ring desarrollada por [tchellomello](https://github.com/tchellomello) y sus colaboradores. Esta librería gestiona la autenticación, el token OAuth2, el polling de eventos y la comunicación con la API de Ring.
+
+Las notificaciones por WhatsApp se envían a través de [wa-gateway](https://github.com/r3fear/wa-gateway), que a su vez está construido sobre [whatsapp-web.js](https://github.com/pedroslopez/whatsapp-web.js) desarrollado por [Pedro S. Lopez](https://github.com/pedroslopez).
+
+> **Nota:** python-ring-doorbell y wa-gateway no están afiliados ni respaldados por Ring, Amazon, WhatsApp ni Meta.
