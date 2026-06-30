@@ -72,7 +72,7 @@ ringalert/
 ├── config.yaml              ← credenciales reales (NO en GitHub)
 ├── config.yaml.example      ← plantilla sin credenciales
 ├── requirements.txt
-├── start_ringalert.bat      ← script de arranque
+├── setup-ringalert.bat      ← panel de control (autenticación, servicio NSSM)
 ├── ring_token.cache         ← token de sesión Ring (NO en GitHub)
 │
 ├── main.py                  ← orquestador principal
@@ -259,31 +259,19 @@ RingAlert no requiere reinicio — detecta la reconexión automáticamente en el
 
 **wa-gateway** debe estar activo antes de iniciar RingAlert. Ver documentación en el repositorio wa-gateway.
 
-### RingAlert (`main.py`)
+### RingAlert
 
-```powershell
-nssm install RingAlertMain "C:\ruta\a\python.exe"
-nssm set RingAlertMain AppParameters "C:\Projects\ringalert\main.py"
-nssm set RingAlertMain AppDirectory "C:\Projects\ringalert"
-nssm set RingAlertMain AppStdout "C:\Projects\ringalert\logs\ringalert.log"
-nssm set RingAlertMain AppStderr "C:\Projects\ringalert\logs\ringalert.log"
-nssm set RingAlertMain AppRotateFiles 1
-nssm set RingAlertMain Start SERVICE_AUTO_START
-nssm start RingAlertMain
-```
+Usar **`setup-ringalert.bat`** (ejecutar como Administrador):
 
-### Gestión del servicio
+| Opción | Acción |
+|---|---|
+| `[1]` Autenticar con Ring | Primera autenticación o token expirado — genera `ring_token.cache` |
+| `[2]` Ver estado del token | Verifica si `ring_token.cache` existe y su fecha |
+| `[3]` Instalar servicio | Detecta Python, verifica requisitos e instala con NSSM |
+| `[4-6]` Iniciar / Detener / Reiniciar | Gestión del servicio `RingAlertMain` |
+| `[7]` Ver log en tiempo real | `Get-Content ringalert.log -Wait -Tail 30` |
 
-```powershell
-nssm start RingAlertMain
-nssm stop RingAlertMain
-nssm restart RingAlertMain
-nssm status RingAlertMain
-nssm remove RingAlertMain confirm
-
-# Ver log en tiempo real
-Get-Content C:\Projects\ringalert\logs\ringalert.log -Wait -Tail 50
-```
+La opción **Instalar servicio** verifica automáticamente: permisos de Administrador, Python, NSSM, `config.yaml`, `ring_token.cache` y disponibilidad de wa-gateway antes de proceder.
 
 ---
 
