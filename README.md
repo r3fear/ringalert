@@ -13,7 +13,7 @@
 Cuando alguien toca el timbre o se detecta movimiento, el sistema:
 
 1. Detecta el evento vía polling a la **API de Ring**
-2. Captura un frame en tiempo real de la cámara SWANN vía RTSP usando ffmpeg
+2. Captura un frame en tiempo real de la cámara vía RTSP usando ffmpeg
 3. Envía mensaje de texto y foto por WhatsApp a través de **[wa-gateway](https://github.com/r3fear/wa-gateway)**
 4. Guarda la foto en historial local organizado por fecha con retención configurable
 5. Monitorea la salud del sistema y envía reporte diario
