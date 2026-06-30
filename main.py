@@ -75,6 +75,8 @@ async def main():
     # Verificar servidor WhatsApp al inicio
     if wa_sender.is_server_alive():
         logger.info("✅ Servidor WhatsApp conectado")
+        # Registrar consumer para cola de mensajes dedicada
+        wa_sender.register_consumer()
         # Registrar destinatarios para resolver @lid (WhatsApp multi-device)
         try:
             numbers = [r for r in config.get("whatsapp", {}).get("recipients", []) if r and r.strip()]
@@ -132,34 +134,45 @@ async def main():
         while True:
             try:
                 req = urllib.request.Request(
-                    f"{config['whatsapp']['server_url']}/inbox"
+                    f"{config['whatsapp']['server_url']}/inbox?consumer=ringalert"
                 )
                 with urllib.request.urlopen(req, timeout=5) as resp:
                     data = json.loads(resp.read())
-                    lid_detected = False
-                    for msg in data.get("messages", []):
-                        body = msg.get("body", "").strip()
-                        sender = msg.get("from", "")
-                        if sender.endswith("@lid"):
-                            lid_detected = True
-                        if body:
-                            logger.info(f"Comando recibido de {sender}: {body}")
-                            await health_monitor.process_whatsapp_command(body, sender)
-                    if lid_detected:
-                        # Refrescar mapa @lid en wa-gateway para que próximos mensajes
-                        # lleguen con el número resuelto
-                        try:
-                            numbers = [r for r in config.get("whatsapp", {}).get("recipients", []) if r and r.strip()]
-                            payload = json.dumps({"numbers": numbers}).encode("utf-8")
-                            req2 = urllib.request.Request(
-                                f"{config['whatsapp']['server_url']}/register-numbers",
-                                data=payload,
-                                headers={"Content-Type": "application/json"}
-                            )
-                            urllib.request.urlopen(req2, timeout=10)
-                            logger.info("Mapa @lid actualizado — próximos mensajes llegarán con número resuelto")
-                        except Exception as e:
-                            logger.warning(f"No se pudo actualizar mapa @lid: {e}")
+
+                # Consumer no registrado (wa-gateway reiniciado): registrar y reintentar
+                if not data.get("ok") and "no registrado" in data.get("error", "").lower():
+                    wa_sender.register_consumer()
+                    try:
+                        req2 = urllib.request.Request(
+                            f"{config['whatsapp']['server_url']}/inbox?consumer=ringalert"
+                        )
+                        with urllib.request.urlopen(req2, timeout=5) as resp2:
+                            data = json.loads(resp2.read())
+                    except Exception:
+                        data = {"messages": []}
+
+                lid_detected = False
+                for msg in data.get("messages", []):
+                    body = msg.get("body", "").strip()
+                    sender = msg.get("from", "")
+                    if sender.endswith("@lid"):
+                        lid_detected = True
+                    if body:
+                        logger.info(f"Comando recibido de {sender}: {body}")
+                        await health_monitor.process_whatsapp_command(body, sender)
+                if lid_detected:
+                    try:
+                        numbers = [r for r in config.get("whatsapp", {}).get("recipients", []) if r and r.strip()]
+                        payload = json.dumps({"numbers": numbers}).encode("utf-8")
+                        req2 = urllib.request.Request(
+                            f"{config['whatsapp']['server_url']}/register-numbers",
+                            data=payload,
+                            headers={"Content-Type": "application/json"}
+                        )
+                        urllib.request.urlopen(req2, timeout=10)
+                        logger.info("Mapa @lid actualizado — próximos mensajes llegarán con número resuelto")
+                    except Exception as e:
+                        logger.warning(f"No se pudo actualizar mapa @lid: {e}")
             except Exception as e:
                 logger.error(f"Error en poll_inbox: {e}")
             await asyncio.sleep(5)

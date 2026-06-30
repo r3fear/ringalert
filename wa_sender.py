@@ -23,6 +23,25 @@ class WhatsAppSender:
         ]
         self.email_config = config.get("email", {})
 
+    def register_consumer(self) -> bool:
+        try:
+            payload = json.dumps({"consumer": "ringalert"}).encode("utf-8")
+            req = urllib.request.Request(
+                f"{self.server_url}/register-consumer",
+                data=payload,
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read())
+                if data.get("ok"):
+                    logger.info("✅ Consumer 'ringalert' registrado en wa-gateway")
+                    return True
+                logger.warning(f"No se pudo registrar consumer: {data.get('error', 'error desconocido')}")
+                return False
+        except Exception as e:
+            logger.warning(f"No se pudo registrar consumer 'ringalert': {e}")
+            return False
+
     def is_server_alive(self) -> bool:
         try:
             req = urllib.request.Request(f"{self.server_url}/status")
