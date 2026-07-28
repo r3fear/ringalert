@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import urllib.error
 import urllib.request
 import yaml
 
@@ -136,8 +137,14 @@ async def main():
                 req = urllib.request.Request(
                     f"{config['whatsapp']['server_url']}/inbox?consumer=ringalert"
                 )
-                with urllib.request.urlopen(req, timeout=5) as resp:
-                    data = json.loads(resp.read())
+                try:
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        data = json.loads(resp.read())
+                except urllib.error.HTTPError as http_err:
+                    try:
+                        data = json.loads(http_err.read())
+                    except Exception:
+                        data = {"ok": False, "error": str(http_err)}
 
                 # Consumer no registrado (wa-gateway reiniciado): registrar y reintentar
                 if not data.get("ok") and "no registrado" in data.get("error", "").lower():
