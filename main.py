@@ -92,7 +92,7 @@ async def main():
         except Exception as e:
             logger.warning(f"No se pudo registrar destinatarios en wa-server: {e}")
     else:
-        logger.warning("⚠️ Servidor WhatsApp no disponible al iniciar")
+        logger.warning("⚠️ Servidor WhatsApp no disponible al iniciar.")
 
     # Callback que se ejecuta cuando Ring detecta un evento
     async def on_ring_event(event_type: str, doorbell_name: str):
