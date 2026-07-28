@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 import urllib.error
 import urllib.request
 import yaml
@@ -132,6 +133,7 @@ async def main():
     logger.info("🚀 Sistema activo — escuchando eventos")
 
     async def poll_inbox():
+        last_registration = [0.0]
         while True:
             try:
                 req = urllib.request.Request(
@@ -146,17 +148,13 @@ async def main():
                     except Exception:
                         data = {"ok": False, "error": str(http_err)}
 
-                # Consumer no registrado (wa-gateway reiniciado): registrar y reintentar
+                # Consumer no registrado (wa-gateway reiniciado): registrar con cooldown
                 if not data.get("ok") and "no registrado" in data.get("error", "").lower():
-                    wa_sender.register_consumer()
-                    try:
-                        req2 = urllib.request.Request(
-                            f"{config['whatsapp']['server_url']}/inbox?consumer=ringalert"
-                        )
-                        with urllib.request.urlopen(req2, timeout=5) as resp2:
-                            data = json.loads(resp2.read())
-                    except Exception:
-                        data = {"messages": []}
+                    now = time.time()
+                    if now - last_registration[0] > 60:
+                        wa_sender.register_consumer()
+                        last_registration[0] = now
+                    data = {"messages": []}
 
                 lid_detected = False
                 for msg in data.get("messages", []):
