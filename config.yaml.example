@@ -3,8 +3,23 @@ ring:
   min_time_between_alerts: 60   # segundos mínimos entre notificaciones
 
 camera:
-  rtsp_url: "rtsp://usuario:password@IP:554/ch02/0"
   ffmpeg_path: "ffmpeg"         # o ruta completa si no está en PATH
+  # Cámaras que toman foto en cada evento de Ring: número, alias, "todas" o lista.
+  # [] = aviso solo con texto. Si un evento no se define, usa doorbell_camera.
+  # La primera foto va con el mensaje (y al email de respaldo); las demás solo por WhatsApp.
+  event_cameras:
+    ding: [frente, cochera]     # alguien tocó el timbre
+    motion: [frente]            # movimiento detectado
+  doorbell_camera: 1            # respaldo para eventos sin event_cameras (número o alias)
+  # El número de cada cámara es su posición en la lista (1, 2, 3...).
+  # Por WhatsApp: FOTO (cámara 1), FOTO2 / FOTO 2, FOTO PATIO / FOTOPATIO
+  cameras:
+    - name: "frente"            # alias opcional
+      rtsp_url: "rtsp://usuario:password@IP:554/ch01/0"
+    - name: "patio"
+      rtsp_url: "rtsp://usuario:password@IP:554/ch02/0"
+    - name: "cochera"
+      rtsp_url: "rtsp://usuario:password@IP:554/ch03/0"
 
 whatsapp:
   server_url: "http://127.0.0.1:3000"  # URL del servicio wa-gateway

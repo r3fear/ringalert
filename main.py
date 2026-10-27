@@ -8,7 +8,7 @@ import urllib.request
 import yaml
 
 from ring_monitor import RingMonitor
-from camera import capture_frame
+from camera import capture_many, load_cameras, resolve_cameras, camera_label, camera_slug
 from wa_sender import WhatsAppSender
 from storage import Storage
 from health_monitor import HealthMonitor
@@ -74,6 +74,32 @@ async def main():
     storage = Storage(config)
     health_monitor = HealthMonitor(config)
 
+    # Cámaras por tipo de evento (event_cameras); si un evento no está definido usa doorbell_camera
+    cameras = load_cameras(config["camera"])
+    event_specs = config["camera"].get("event_cameras") or {}
+    default_spec = config["camera"].get("doorbell_camera", 1)
+
+    def cameras_for(event: str) -> list:
+        spec = event_specs.get(event, default_spec)
+        if spec is None or spec == []:
+            return []  # explícitamente sin foto
+        selected, unknown = resolve_cameras(cameras, spec)
+        if unknown:
+            logger.warning(f"Cámaras inexistentes para '{event}': {', '.join(unknown)}")
+        if not selected and cameras:
+            selected = cameras[:1]
+            logger.warning(f"Ninguna cámara válida para '{event}' — usando cámara {camera_label(selected[0])}")
+        return selected
+
+    event_cameras = {event: cameras_for(event) for event in ("ding", "motion")}
+    if not cameras:
+        logger.warning("⚠️ No hay cámaras configuradas — las alertas se enviarán sin foto")
+    else:
+        logger.info(f"📷 {len(cameras)} cámara(s) configurada(s)")
+        for event, selected in event_cameras.items():
+            labels = ", ".join(camera_label(c) for c in selected) or "sin foto"
+            logger.info(f"📷 Evento {event}: {labels}")
+
     # Verificar servidor WhatsApp al inicio
     if wa_sender.is_server_alive():
         logger.info("✅ Servidor WhatsApp conectado")
@@ -107,24 +133,34 @@ async def main():
         if event_type == "ding":
             asyncio.create_task(play_doorbell_sound(config))
 
-        # 1. Capturar foto de la cámara SWANN
-        photo_path = storage.get_photo_path(event_type)
-        rtsp_url = config["camera"]["rtsp_url"]
+        # 1. Capturar en paralelo las cámaras asignadas a este tipo de evento
+        selected = event_cameras.get(event_type)
+        if selected is None:
+            selected = cameras_for(event_type)
         ffmpeg_path = config["camera"].get("ffmpeg_path", "ffmpeg")
-
-        photo_ok = capture_frame(rtsp_url, photo_path, ffmpeg_path)
-
-        if not photo_ok:
-            logger.warning("No se pudo capturar foto — se enviará solo el texto")
-            photo_path = ""
+        results = await capture_many(
+            selected,
+            lambda c: storage.get_photo_path(f"{event_type}_{camera_slug(c)}"),
+            ffmpeg_path
+        )
+        captured = [(c, path) for c, path in results if path]
+        failed = [camera_label(c) for c, path in results if not path]
 
         # 2. Construir mensaje
         message = wa_sender.build_message(event_type, doorbell_name)
-        if not photo_ok:
-            message += "\n⚠️ No se pudo capturar foto de la cámara."
+        if failed:
+            logger.warning(f"No se pudo capturar foto de: {', '.join(failed)}")
+            if captured:
+                message += f"\n⚠️ No se pudo capturar: {', '.join(failed)}"
+            else:
+                message += "\n⚠️ No se pudo capturar foto de la cámara."
+        if len(selected) > 1 and captured:
+            message += f"\n📸 Cámara {camera_label(captured[0][0])}"
 
-        # 3. Enviar por WhatsApp
-        wa_sender.send_alert(message, photo_path)
+        # 3. Enviar: la primera foto va con el mensaje (y al email de respaldo); el resto solo por WhatsApp
+        photo_path = captured[0][1] if captured else ""
+        extra_images = [(f"📸 Cámara {camera_label(c)}", path) for c, path in captured[1:]]
+        wa_sender.send_alert(message, photo_path, extra_images)
 
     # Correr todo en paralelo
     ring_monitor = RingMonitor(config["ring"], on_ring_event)

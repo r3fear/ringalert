@@ -4,7 +4,7 @@ from datetime import datetime, time
 
 from wa_sender import WhatsAppSender
 from storage import Storage
-from camera import capture_frame
+from camera import capture_frame, capture_many, load_cameras, find_camera, camera_label, camera_slug
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +15,7 @@ class HealthMonitor:
         self.wa_sender = WhatsAppSender(config)
         self.storage = Storage(config)
         self.ring_monitor = ring_monitor
+        self.cameras = load_cameras(config["camera"])
         self.daily_report_time = config["monitoring"].get("daily_report_time", "08:00")
         self.silenced_until = None
         self.last_report_date = None
@@ -62,6 +63,36 @@ class HealthMonitor:
         if not os.path.exists(today_dir):
             return 0
         return len([f for f in os.listdir(today_dir) if f.endswith(".jpg")])
+
+    def _cameras_list(self) -> str:
+        lines = []
+        for c in self.cameras:
+            alias = f" o FOTO {c['name'].upper()}" if c["name"] else ""
+            lines.append(f"• {camera_label(c)} → FOTO{c['num']}{alias}")
+        lines.append("• Todas → FOTO TODAS")
+        return "\n".join(lines)
+
+    async def _send_all_photos(self, reply):
+        """Captura todas las cámaras en paralelo y envía una foto por cámara."""
+        ffmpeg_path = self.config["camera"].get("ffmpeg_path", "ffmpeg")
+        logger.info(f"Comando FOTO TODAS: capturando {len(self.cameras)} cámaras...")
+        reply(f"⏳ Capturando {len(self.cameras)} cámaras...")
+
+        results = await capture_many(
+            self.cameras,
+            lambda c: self.storage.get_photo_path(f"foto_{camera_slug(c)}"),
+            ffmpeg_path
+        )
+
+        failed = []
+        for camera, photo_path in results:
+            if photo_path:
+                reply(f"📸 Foto cámara {camera_label(camera)}:", image_path=photo_path)
+            else:
+                failed.append(camera_label(camera))
+        if failed:
+            logger.error(f"Comando FOTO TODAS: capturas fallidas en {', '.join(failed)}")
+            reply(f"❌ No se pudo capturar: {', '.join(failed)}. Verifica las cámaras.")
 
     async def check_whatsapp_health(self):
         is_connected = self.wa_sender.is_server_alive()
@@ -154,20 +185,41 @@ class HealthMonitor:
             reply(self.build_daily_report())
             return True
 
-        elif message == "FOTO":
+        elif message == "CAMARAS" or message == "CÁMARAS":
+            reply(f"📷 Cámaras disponibles:\n{self._cameras_list()}")
+            return True
+
+        elif message.startswith("FOTO"):
+            # FOTO → cámara 1 · FOTO2 / FOTO 2 → cámara 2 · FOTO PATIO / FOTOPATIO → alias
+            # FOTO TODAS → todas las cámaras
+            key = message[4:].strip()
+            if not self.cameras:
+                reply("❌ No hay cámaras configuradas.")
+                return True
+            if key.replace(" ", "") == "TODAS":
+                await self._send_all_photos(reply)
+                return True
+            camera = find_camera(self.cameras, key) if key else self.cameras[0]
+            if camera is None:
+                logger.warning(f"Comando FOTO: cámara '{key}' no existe")
+                reply(
+                    f"❌ La cámara '{key}' no existe.\n"
+                    f"Cámaras disponibles:\n{self._cameras_list()}"
+                )
+                return True
+            label = camera_label(camera)
             try:
-                logger.info("Comando FOTO: iniciando captura...")
-                rtsp_url = self.config["camera"]["rtsp_url"]
+                logger.info(f"Comando FOTO: iniciando captura de cámara {label}...")
                 ffmpeg_path = self.config["camera"].get("ffmpeg_path", "ffmpeg")
-                photo_path = self.storage.get_photo_path("foto")
+                photo_path = self.storage.get_photo_path(f"foto_{camera_slug(camera)}")
                 logger.info(f"Comando FOTO: capturando en {photo_path}")
-                ok = capture_frame(rtsp_url, photo_path, ffmpeg_path)
+                ok = capture_frame(camera["rtsp_url"], photo_path, ffmpeg_path)
                 if ok:
                     logger.info("Comando FOTO: captura exitosa, enviando por WhatsApp...")
-                    reply("📸 Foto capturada:", image_path=photo_path)
+                    reply(f"📸 Foto cámara {label}:", image_path=photo_path)
                 else:
-                    logger.error("Comando FOTO: captura fallida")
-                    reply("❌ No se pudo capturar la foto. Verifica la cámara.")
+                    logger.error(f"Comando FOTO: captura fallida en cámara {label}")
+                    reply(f"❌ No se pudo capturar la foto de la cámara {label}. Verifica la cámara.")
             except Exception as e:
                 logger.error(f"Comando FOTO: error inesperado — {e}")
                 reply("❌ Error interno al procesar FOTO.")

@@ -83,9 +83,11 @@ class WhatsAppSender:
             logger.info(f"✅ Respuesta directa enviada a {to}")
         return ok
 
-    def send_alert(self, message: str, image_path: str = "") -> bool:
+    def send_alert(self, message: str, image_path: str = "", extra_images: list = None) -> bool:
         """
         Envía mensaje y foto a todos los destinatarios.
+        extra_images: [(texto, ruta), ...] fotos adicionales enviadas después del mensaje
+        principal; solo por WhatsApp — el email de respaldo lleva únicamente image_path.
         Retorna True si al menos uno recibió el mensaje.
         """
         if not self.recipients:
@@ -105,6 +107,9 @@ class WhatsAppSender:
                 logger.info(f"✅ Mensaje enviado a {recipient}")
             else:
                 logger.error(f"❌ Fallo al enviar a {recipient}")
+            for caption, extra_path in extra_images or []:
+                if not self._send_request(recipient, caption, extra_path):
+                    logger.error(f"❌ Fallo al enviar foto adicional a {recipient}: {caption}")
 
         return success_count > 0
 

@@ -90,8 +90,9 @@ ringalert/
 │
 └── fotos/                   ← historial de fotos (NO en GitHub)
     └── YYYY/MM/DD/
-        ├── ding_HHMMSS.jpg
-        └── motion_HHMMSS.jpg
+        ├── ding_cam1_frente_HHMMSS.jpg
+        ├── motion_cam1_frente_HHMMSS.jpg
+        └── foto_cam2_patio_HHMMSS.jpg   ← comandos FOTO
 ```
 
 ---
@@ -104,7 +105,8 @@ Punto de entrada. Orquesta todos los módulos con `asyncio.gather`. Contiene:
 
 - `setup_logging()`: configura log a archivo `logs/ringalert.log` y consola simultáneamente. Formato `YYYY-MM-DD HH:MM:SS - LEVEL - mensaje`, encoding UTF-8. Crea `logs/` si no existe.
 - `play_doorbell_sound(config)`: reproduce el sonido WAV configurado vía `asyncio.create_subprocess_exec` + PowerShell `System.Media.SoundPlayer`; solo en eventos `ding`; corre en segundo plano sin bloquear.
-- `on_ring_event(event_type, doorbell_name)`: callback que dispara captura de foto y envío por WhatsApp. Si la captura RTSP falla, agrega `⚠️ No se pudo capturar foto de la cámara.` al mensaje.
+- Al arrancar resuelve `camera.event_cameras` → cámaras por evento (`ding`, `motion`) y las loguea. Evento no definido → usa `doorbell_camera`; alias inexistentes se loguean y, si no queda ninguna válida, usa la cámara #1; `[]` = sin foto.
+- `on_ring_event(event_type, doorbell_name)`: captura en paralelo las cámaras del evento (`capture_many`). La primera foto exitosa va con el mensaje; las demás se envían como fotos adicionales por WhatsApp. Si alguna falla agrega `⚠️ No se pudo capturar: #3 (cochera)`; si fallan todas, `⚠️ No se pudo capturar foto de la cámara.`
 - `poll_inbox()`: loop cada 5 segundos; lee `GET /inbox?consumer=ringalert`; si wa-gateway responde con error de consumer no registrado, llama `register_consumer()` y reintenta una vez; detecta senders `@lid` y llama `POST /register-numbers` para refrescar el mapa en wa-gateway.
 - Al arrancar (si wa-gateway disponible): llama `POST /register-consumer` para asegurar cola dedicada, luego `POST /register-numbers` con la lista de recipients para resolver `@lid`.
 
@@ -129,13 +131,21 @@ Función `capture_frame(rtsp_url, output_path, ffmpeg_path)`:
 - Retorna `True/False`
 - Maneja `FileNotFoundError`, `TimeoutExpired` y cualquier excepción sin lanzarla
 
+Multi-cámara:
+- `load_cameras(camera_config)`: lee `camera.cameras` → `[{"num", "name", "rtsp_url"}]`; el número es la posición en la lista. Si no hay lista pero existe `camera.rtsp_url` (formato antiguo), lo usa como cámara 1
+- `find_camera(cameras, key)`: busca por número o alias (normaliza mayúsculas, acentos y espacios)
+- `resolve_cameras(cameras, spec)`: resuelve número, alias, `todas` o lista → `(cámaras, claves_inexistentes)`
+- `capture_many(cameras, path_for, ffmpeg_path)`: captura varias cámaras en paralelo (`asyncio.to_thread`); usado por eventos y `FOTO TODAS`
+- `camera_label()` / `camera_slug()`: texto `#2 (patio)` y fragmento de nombre de archivo `cam2_patio`
+- Prueba manual: `py camera.py` (todas) o `py camera.py patio`
+
 ### `wa_sender.py`
 
 Clase `WhatsAppSender`. Usa exclusivamente `urllib.request` de la stdlib.
 
 - `register_consumer()`: `POST /register-consumer` con `{"consumer": "ringalert"}`; crea cola de mensajes dedicada en wa-gateway. Seguro llamarlo en cada arranque — si ya existe, wa-gateway responde `ok` sin borrar la cola.
 - `is_server_alive()`: `GET /status`; retorna `True` solo si `connected: true`.
-- `send_alert(message, image_path)`: broadcast a todos los recipients configurados. Si wa-gateway no responde en HTTP (proceso caído), llama `send_email_fallback(message, image_path)`.
+- `send_alert(message, image_path, extra_images=None)`: broadcast a todos los recipients configurados; `extra_images` = `[(texto, ruta)]` se envían después del mensaje principal. Si wa-gateway no responde en HTTP (proceso caído), llama `send_email_fallback(message, image_path)` — el email lleva solo la primera foto.
 - `send_direct(to, message, image_path)`: envía a un destinatario específico (número o JID). Usado para responder comandos — no hace broadcast ni activa fallback de email.
 - `send_email_fallback(message, image_path)`: SMTP Gmail con `starttls`. Envía email HTML con foto embebida inline (`MIMEImage` + `cid:`) cuando el archivo existe. Se activa **solo** cuando wa-gateway no responde en HTTP — los emails de desconexión interna de WhatsApp los gestiona wa-gateway.
 - `build_message(event_type, doorbell_name)`: formatea el texto del mensaje con emoji y fecha.
@@ -155,7 +165,7 @@ Clase `HealthMonitor`. Loop cada 60 segundos.
 - `check_daily_report()`: envía reporte a `daily_report_time` una vez por día; ejecuta limpieza de fotos antiguas.
 - `build_daily_report()`: genera texto con batería del timbre, estado de wa-gateway y fotos del día.
 - `_is_authorized_sender(sender)`: extrae dígitos del sender y compara contra `recipients`. Acepta temporalmente senders `@lid` — wa-gateway aún no resolvió el número; `poll_inbox()` dispara el refresh.
-- `process_whatsapp_command(message, sender)`: procesa `ESTADO`, `SILENCIAR Nh`, `REACTIVAR`, `FOTO`; rechaza si el sender no está autorizado; responde solo al remitente vía `send_direct`.
+- `process_whatsapp_command(message, sender)`: procesa `ESTADO`, `SILENCIAR Nh`, `REACTIVAR`, `FOTO[n|alias|TODAS]`, `CAMARAS`; rechaza si el sender no está autorizado; responde solo al remitente vía `send_direct`.
 - `silence(hours)` / `is_silenced()`: gestión de silencio temporal.
 
 ### wa-gateway (servicio externo)
@@ -182,8 +192,16 @@ ring:
   min_time_between_alerts: 60   # segundos mínimos entre notificaciones
 
 camera:
-  rtsp_url: "rtsp://usuario:password@IP:554/ch02/0"
   ffmpeg_path: "ffmpeg"         # o ruta completa si no está en PATH
+  event_cameras:                # cámaras por evento: número, alias, "todas" o lista; [] = sin foto
+    ding: [frente, cochera]
+    motion: [frente]
+  doorbell_camera: 1            # respaldo para eventos no definidos en event_cameras
+  cameras:                      # el número de cada cámara es su posición (1, 2, 3...)
+    - name: "frente"            # alias opcional
+      rtsp_url: "rtsp://usuario:password@IP:554/ch01/0"
+    - name: "patio"
+      rtsp_url: "rtsp://usuario:password@IP:554/ch02/0"
 
 whatsapp:
   server_url: "http://127.0.0.1:3000"  # URL del servicio wa-gateway
@@ -224,7 +242,13 @@ Enviar desde un número autorizado (debe estar en `recipients`). El bot responde
 | `SILENCIAR 2h` | Silencia alertas por 2 horas |
 | `SILENCIAR 0.5h` | Silencia alertas por 30 minutos |
 | `REACTIVAR` | Cancela el silencio activo |
-| `FOTO` | Captura y envía foto en tiempo real de la cámara |
+| `FOTO` | Captura y envía foto en tiempo real de la cámara #1 |
+| `FOTO2` / `FOTO 2` | Foto de la cámara #2 (y así sucesivamente) |
+| `FOTO PATIO` / `FOTOPATIO` | Foto de la cámara con ese alias (sin importar mayúsculas ni acentos) |
+| `FOTO TODAS` | Captura todas las cámaras en paralelo y envía una foto por cámara |
+| `CAMARAS` | Lista las cámaras configuradas con su número y alias |
+
+Los comandos no distinguen mayúsculas/minúsculas (`foto patio` = `FOTO PATIO`). Si se pide una cámara que no existe (ej. `FOTO7`), el bot responde con la lista de cámaras disponibles.
 
 ---
 
@@ -319,8 +343,8 @@ Instalar: `py -m pip install -r requirements.txt`
 - RingAlert usa el sistema de consumers de wa-gateway con el nombre `"ringalert"`. Llama `POST /register-consumer` al arrancar y `GET /inbox?consumer=ringalert` en el loop. Si wa-gateway se reinicia, el consumer se pierde; `poll_inbox()` lo detecta (respuesta `ok: false` con "no registrado") y lo re-registra automáticamente
 - `health_monitor.check_whatsapp_health()` solo loguea cambios de estado — no envía emails. Los emails de desconexión/reconexión de WhatsApp los gestiona wa-gateway internamente
 - `send_email_fallback(message, image_path)` solo se activa cuando wa-gateway no responde en HTTP. Envía email HTML con foto embebida inline (`MIMEImage` + `Content-ID: ringalert_photo`) cuando la foto existe en disco
-- `send_alert()` pasa `image_path` a `send_email_fallback()` — la foto va incluida en el email si existe
-- Si la captura RTSP falla, `on_ring_event()` agrega `⚠️ No se pudo capturar foto de la cámara.` al mensaje, tanto para WhatsApp como para el email de respaldo
+- `send_alert()` pasa `image_path` a `send_email_fallback()` — la foto va incluida en el email si existe. Con varias cámaras por evento, el email lleva solo la primera foto exitosa; `extra_images` solo se envía por WhatsApp
+- Si la captura RTSP falla, `on_ring_event()` agrega el aviso de cámaras fallidas al mensaje, tanto para WhatsApp como para el email de respaldo
 - `play_doorbell_sound` usa PowerShell `System.Media.SoundPlayer` para reproducir audio en Session 0 (NSSM) — solo soporta WAV; las rutas con comillas simples se escapan como `''`
 - Los comandos de WhatsApp responden solo al remitente (`send_direct`) — no a todos los recipients (`send_alert`)
 - Esta rama (`conexion-wa-gateway`) reemplaza el módulo `whatsapp/` local por el servicio externo wa-gateway. La rama `main` conserva el módulo embebido como respaldo histórico
