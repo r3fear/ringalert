@@ -170,6 +170,9 @@ async def main():
 
     async def poll_inbox():
         last_registration = [0.0]
+        # whatsapp-web.js a veces emite el mismo mensaje dos veces (a veces una con @lid y otra
+        # con el número resuelto); se deduplica por (texto, timestamp) para no ejecutar el comando doble
+        seen_messages = {}
         while True:
             try:
                 req = urllib.request.Request(
@@ -192,12 +195,23 @@ async def main():
                         last_registration[0] = now
                     data = {"messages": []}
 
+                now = time.time()
+                for key in [k for k, seen_at in seen_messages.items() if now - seen_at > 600]:
+                    del seen_messages[key]
+
                 lid_detected = False
                 for msg in data.get("messages", []):
                     body = msg.get("body", "").strip()
                     sender = msg.get("from", "")
                     if sender.endswith("@lid"):
                         lid_detected = True
+                    timestamp = msg.get("timestamp")
+                    if body and timestamp:
+                        key = (body.upper(), timestamp)
+                        if key in seen_messages:
+                            logger.info(f"Comando duplicado ignorado de {sender}: {body}")
+                            continue
+                        seen_messages[key] = now
                     if body:
                         logger.info(f"Comando recibido de {sender}: {body}")
                         await health_monitor.process_whatsapp_command(body, sender)
